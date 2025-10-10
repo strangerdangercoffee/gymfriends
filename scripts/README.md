@@ -1,8 +1,31 @@
-# Database Seeding Scripts
+# Database Scripts
 
-This directory contains scripts to populate your Supabase database with gym data.
+This directory contains scripts to populate and maintain your Supabase database.
 
-## Available Scripts
+## SQL Migration Scripts
+
+### add-invitations-table.sql
+Creates the invitations table for friend requests functionality.
+
+```bash
+psql your_database < scripts/add-invitations-table.sql
+```
+
+### add-auto-checkin-setting.sql
+Adds the `auto_check_in` field to user privacy settings. Run this to enable the auto check-in feature.
+
+```bash
+psql your_database < scripts/add-auto-checkin-setting.sql
+```
+
+This migration:
+- Adds `auto_check_in` field to `privacy_settings` JSONB column
+- Sets default value to `false` for all existing users
+- Required for the background geofencing auto check-in feature
+
+## Data Seeding Scripts
+
+### Available Scripts
 
 ### 1. Manual Seeding (Recommended for testing)
 ```bash
@@ -68,7 +91,21 @@ npm run seed:gyms
 - Categorizes gyms automatically
 - Handles rate limiting and pagination
 
+## Verification Script
+
+### verify-gyms.js
+```bash
+npm run verify:gyms
+```
+
+Verifies the integrity of gym data in your database:
+- Checks for missing coordinates
+- Validates addresses
+- Reports statistics
+
 ## Database Schema
+
+### Gyms Table
 
 The scripts populate the `gyms` table with:
 - `name`: Gym name
@@ -77,6 +114,19 @@ The scripts populate the `gyms` table with:
 - `category`: 'traditional', 'climbing', 'crossfit', 'martial_arts', 'specialty'
 - `followers`: Array of user IDs (starts empty)
 - `current_users`: Array of user IDs currently at gym (starts empty)
+
+### Users Table - Privacy Settings
+
+The `privacy_settings` JSONB column includes:
+```json
+{
+  "share_location": boolean,
+  "share_schedule": boolean,
+  "auto_check_in": boolean
+}
+```
+
+Make sure to run the `add-auto-checkin-setting.sql` migration to add this field.
 
 ## Troubleshooting
 

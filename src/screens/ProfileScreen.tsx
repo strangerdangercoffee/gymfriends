@@ -16,16 +16,27 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import PendingInvitations from '../components/PendingInvitations';
+import LocationPermissionModal from '../components/LocationPermissionModal';
 
 const ProfileScreen: React.FC = () => {
   const { user, signOut, updateProfile } = useAuth();
-  const { hasPermissions, requestPermissions, isTracking, startTracking, stopTracking } = useLocation();
+  const { 
+    hasPermissions, 
+    requestPermissions, 
+    isTracking, 
+    startTracking, 
+    stopTracking,
+    hasBackgroundPermission,
+    isGeofencingActive,
+  } = useLocation();
   const { friends, gyms } = useApp();
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [shareLocation, setShareLocation] = useState(user?.privacySettings?.shareLocation ?? true);
   const [shareSchedule, setShareSchedule] = useState(user?.privacySettings?.shareSchedule ?? true);
+  const [autoCheckIn, setAutoCheckIn] = useState(user?.privacySettings?.autoCheckIn ?? false);
+  const [showLocationPermissionModal, setShowLocationPermissionModal] = useState(false);
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -36,6 +47,7 @@ const ProfileScreen: React.FC = () => {
         privacySettings: {
           shareLocation,
           shareSchedule,
+          autoCheckIn,
         },
       });
       setIsEditing(false);
@@ -50,6 +62,7 @@ const ProfileScreen: React.FC = () => {
     setEmail(user?.email || '');
     setShareLocation(user?.privacySettings?.shareLocation ?? true);
     setShareSchedule(user?.privacySettings?.shareSchedule ?? true);
+    setAutoCheckIn(user?.privacySettings?.autoCheckIn ?? false);
     setIsEditing(false);
   };
 
@@ -185,6 +198,52 @@ const ProfileScreen: React.FC = () => {
     </Card>
   );
 
+  const handleAutoCheckInToggle = async (value: boolean) => {
+    if (value && !hasBackgroundPermission) {
+      // Show permission modal if trying to enable without permissions
+      setShowLocationPermissionModal(true);
+    } else {
+      setAutoCheckIn(value);
+      // Save immediately
+      if (user) {
+        try {
+          await updateProfile({
+            privacySettings: {
+              shareLocation,
+              shareSchedule,
+              autoCheckIn: value,
+            },
+          });
+          Alert.alert(
+            value ? 'Auto Check-In Enabled' : 'Auto Check-In Disabled',
+            value 
+              ? 'You will now be automatically checked in when you arrive at your gym!'
+              : 'Auto check-in has been disabled.'
+          );
+        } catch (error) {
+          Alert.alert('Error', 'Failed to update settings');
+          setAutoCheckIn(!value); // Revert on error
+        }
+      }
+    }
+  };
+
+  const handleRequestLocationPermissions = async () => {
+    const granted = await requestPermissions();
+    if (granted) {
+      setAutoCheckIn(true);
+      if (user) {
+        await updateProfile({
+          privacySettings: {
+            shareLocation,
+            shareSchedule,
+            autoCheckIn: true,
+          },
+        });
+      }
+    }
+  };
+
   const renderPrivacySection = () => (
     <Card style={styles.section}>
       <Text style={styles.sectionTitle}>Privacy Settings</Text>
@@ -216,6 +275,30 @@ const ProfileScreen: React.FC = () => {
           onValueChange={setShareSchedule}
           trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
           thumbColor={shareSchedule ? 'white' : '#8E8E93'}
+        />
+      </View>
+
+      <View style={[styles.settingItem, styles.autoCheckInItem]}>
+        <View style={styles.settingInfo}>
+          <View style={styles.settingTitleRow}>
+            <Text style={styles.settingTitle}>Auto Check-In</Text>
+            <Ionicons name="location" size={16} color="#007AFF" style={styles.locationIcon} />
+          </View>
+          <Text style={styles.settingDescription}>
+            Automatically check in when within 500ft of your gym
+          </Text>
+          {isGeofencingActive && (
+            <View style={styles.activeChip}>
+              <Ionicons name="checkmark-circle" size={12} color="#34C759" />
+              <Text style={styles.activeChipText}>Active</Text>
+            </View>
+          )}
+        </View>
+        <Switch
+          value={autoCheckIn}
+          onValueChange={handleAutoCheckInToggle}
+          trackColor={{ false: '#E5E5E7', true: '#34C759' }}
+          thumbColor={autoCheckIn ? 'white' : '#8E8E93'}
         />
       </View>
     </Card>
@@ -284,14 +367,23 @@ const ProfileScreen: React.FC = () => {
   );
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {renderProfileSection()}
-      {renderStatsSection()}
-      <PendingInvitations />
-      {renderPrivacySection()}
-      {renderLocationSection()}
-      {renderAccountSection()}
-    </ScrollView>
+    <>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {renderProfileSection()}
+        {renderStatsSection()}
+        <PendingInvitations />
+        {renderPrivacySection()}
+        {renderLocationSection()}
+        {renderAccountSection()}
+      </ScrollView>
+
+      <LocationPermissionModal
+        visible={showLocationPermissionModal}
+        onClose={() => setShowLocationPermissionModal(false)}
+        onRequestPermissions={handleRequestLocationPermissions}
+        hasBackgroundPermission={hasBackgroundPermission}
+      />
+    </>
   );
 };
 
@@ -410,6 +502,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: 'white',
+  },
+  autoCheckInItem: {
+    borderBottomWidth: 0,
+  },
+  settingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationIcon: {
+    marginLeft: 6,
+  },
+  activeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  activeChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2E7D32',
+    marginLeft: 4,
   },
 });
 

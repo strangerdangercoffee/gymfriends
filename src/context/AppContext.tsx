@@ -1,15 +1,18 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '../services/supabase';
-import { userApi, gymApi, scheduleApi, presenceApi } from '../services/api';
+import { userApi, gymApi, scheduleApi, presenceApi, workoutHistoryApi } from '../services/api';
+import { geofencingService } from '../services/geofencing';
 import { 
   User, 
   Gym, 
   Schedule, 
-  Presence, 
+  Presence,
+  WorkoutHistory,
   CreateScheduleForm, 
   AppContextType 
 } from '../types';
 import { useAuth } from './AuthContext';
+import { useLocation } from './LocationContext';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -19,10 +22,12 @@ interface AppProviderProps {
 
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const { user, updateProfile } = useAuth();
+  const { startGeofencing, stopGeofencing, hasBackgroundPermission } = useLocation();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [gyms, setGyms] = useState<Gym[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
   const [presence, setPresence] = useState<Presence[]>([]);
+  const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -31,6 +36,36 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setupRealtimeSubscriptions();
     }
   }, [user]);
+
+  // Auto-start geofencing if user has auto check-in enabled
+  useEffect(() => {
+    if (user && user.privacySettings.autoCheckIn && hasBackgroundPermission && gyms.length > 0) {
+      startAutoCheckIn();
+    }
+  }, [user?.privacySettings.autoCheckIn, hasBackgroundPermission, gyms]);
+
+  const startAutoCheckIn = async () => {
+    if (!user) return;
+    
+    try {
+      const followedGyms = gyms.filter(gym => user.followedGyms.includes(gym.id));
+      if (followedGyms.length > 0) {
+        await startGeofencing(user.id, followedGyms);
+        console.log('Auto check-in started');
+      }
+    } catch (error) {
+      console.error('Error starting auto check-in:', error);
+    }
+  };
+
+  const stopAutoCheckIn = async () => {
+    try {
+      await stopGeofencing();
+      console.log('Auto check-in stopped');
+    } catch (error) {
+      console.error('Error stopping auto check-in:', error);
+    }
+  };
 
   const setupRealtimeSubscriptions = () => {
     if (!user) return;
@@ -101,6 +136,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         refreshGyms(),
         refreshFriends(),
         refreshPresence(),
+        refreshWorkoutHistory(),
       ]);
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -149,6 +185,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   };
 
+  const refreshWorkoutHistory = async (): Promise<void> => {
+    if (!user) return;
+
+    try {
+      // Get last 30 days of workout history
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      
+      const history = await workoutHistoryApi.getWorkoutHistory(user.id, startDate, endDate);
+      setWorkoutHistory(history);
+    } catch (error) {
+      console.error('Error refreshing workout history:', error);
+    }
+  };
+
   const addSchedule = async (scheduleData: CreateScheduleForm): Promise<void> => {
     if (!user) throw new Error('No user logged in');
 
@@ -185,6 +237,17 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   };
 
+  const deleteRecurringSchedule = async (userId: string, workoutType: string, recurringPattern: any, startTime: string): Promise<void> => {
+    try {
+      await scheduleApi.deleteRecurringSchedule(userId, workoutType, recurringPattern, startTime);
+      // Refresh schedules to get updated list
+      await refreshSchedules();
+    } catch (error) {
+      console.error('Error deleting recurring schedule:', error);
+      throw error;
+    }
+  };
+
   const addFriend = async (email: string): Promise<void> => {
     if (!user) throw new Error('No user logged in');
 
@@ -193,6 +256,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       await refreshFriends();
     } catch (error) {
       console.error('Error adding friend:', error);
+      throw error;
+    }
+  };
+
+  const addFriendInstant = async (friendId: string): Promise<void> => {
+    if (!user) throw new Error('No user logged in');
+
+    try {
+      await userApi.addFriendInstant(user.id, friendId);
+      await refreshFriends();
+      // Also update the current user's friends list in auth context
+      await updateProfile({ friends: [...(user.friends || []), friendId] });
+    } catch (error) {
+      console.error('Error adding friend instantly:', error);
       throw error;
     }
   };
@@ -227,6 +304,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             : gym
         )
       );
+
+      // Update geofencing with new gym list if auto check-in is enabled
+      if (user.privacySettings.autoCheckIn && hasBackgroundPermission) {
+        const followedGyms = gyms.filter(g => 
+          updatedFollowedGyms.includes(g.id)
+        );
+        geofencingService.updateFollowedGyms(followedGyms);
+      }
     } catch (error) {
       console.error('Error following gym:', error);
       throw error;
@@ -251,6 +336,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             : gym
         )
       );
+
+      // Update geofencing with new gym list if auto check-in is enabled
+      if (user.privacySettings.autoCheckIn && hasBackgroundPermission) {
+        const followedGyms = gyms.filter(g => 
+          updatedFollowedGyms.includes(g.id)
+        );
+        geofencingService.updateFollowedGyms(followedGyms);
+      }
     } catch (error) {
       console.error('Error unfollowing gym:', error);
       throw error;
@@ -264,6 +357,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       await presenceApi.checkIn(user.id, gymId);
       await refreshPresence(); // Refresh all presence data
       await refreshGyms(); // Update gym's current users
+      
+      // Update geofencing state to prevent duplicate auto check-in
+      geofencingService.setManualCheckInState(gymId, true);
     } catch (error) {
       console.error('Error checking in:', error);
       throw error;
@@ -277,8 +373,41 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       await presenceApi.checkOut(user.id, gymId);
       await refreshPresence(); // Refresh all presence data
       await refreshGyms(); // Update gym's current users
+      await refreshWorkoutHistory(); // Refresh workout history (database trigger creates entry automatically)
+      
+      // Update geofencing state
+      geofencingService.setManualCheckInState(null, false);
     } catch (error) {
       console.error('Error checking out:', error);
+      throw error;
+    }
+  };
+
+  const getWorkoutHistory = async (userId: string, startDate?: Date, endDate?: Date): Promise<WorkoutHistory[]> => {
+    try {
+      return await workoutHistoryApi.getWorkoutHistory(userId, startDate, endDate);
+    } catch (error) {
+      console.error('Error getting workout history:', error);
+      throw error;
+    }
+  };
+
+  const updateWorkoutHistory = async (id: string, updates: Partial<WorkoutHistory>): Promise<void> => {
+    try {
+      await workoutHistoryApi.updateWorkoutHistory(id, updates);
+      await refreshWorkoutHistory();
+    } catch (error) {
+      console.error('Error updating workout history:', error);
+      throw error;
+    }
+  };
+
+  const deleteWorkoutHistory = async (id: string): Promise<void> => {
+    try {
+      await workoutHistoryApi.deleteWorkoutHistory(id);
+      setWorkoutHistory(prev => prev.filter(wh => wh.id !== id));
+    } catch (error) {
+      console.error('Error deleting workout history:', error);
       throw error;
     }
   };
@@ -288,17 +417,23 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     gyms,
     friends,
     presence,
+    workoutHistory,
     isLoading,
     refreshData,
     addSchedule,
     updateSchedule,
     deleteSchedule,
+    deleteRecurringSchedule,
     addFriend,
+    addFriendInstant,
     removeFriend,
     followGym,
     unfollowGym,
     checkIn,
     checkOut,
+    getWorkoutHistory,
+    updateWorkoutHistory,
+    deleteWorkoutHistory,
   };
 
   return (

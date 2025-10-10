@@ -41,7 +41,7 @@ const GymsScreen: React.FC = () => {
   // Helper function to check if user is currently at a specific gym
   const isUserAtGym = (gymId: string): boolean => {
     if (!user) return false;
-    return presence.some(p => p.gymId === gymId && p.isActive);
+    return presence.some(p => p.gymId === gymId && p.userId === user.id && p.isActive);
   };
 
   const handleRefresh = async () => {

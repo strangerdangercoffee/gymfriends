@@ -9,6 +9,7 @@ export interface User {
   privacySettings: {
     shareLocation: boolean;
     shareSchedule: boolean;
+    autoCheckIn: boolean;
   };
   createdAt: string;
   updatedAt: string;
@@ -57,6 +58,34 @@ export interface Presence {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+// Workout History types
+export interface WorkoutHistory {
+  id: string;
+  userId: string;
+  gymId: string;
+  startTime: string; // ISO timestamp (from checkedInAt)
+  endTime: string; // ISO timestamp (from checkedOutAt)
+  duration: number; // Duration in minutes
+  workoutType?: 'cardio' | 'strength' | 'yoga' | 'running' | 'climbing' | 'crossfit' | 'custom';
+  title?: string;
+  notes?: string;
+  exercises?: WorkoutExercise[];
+  presenceId?: string; // Reference to the presence record
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkoutExercise {
+  id: string;
+  name: string;
+  sets?: number;
+  reps?: number;
+  weight?: number;
+  duration?: number; // in minutes
+  distance?: number; // in km or miles
+  notes?: string;
 }
 
 // Navigation types
@@ -145,6 +174,63 @@ export interface CreateGymForm {
   category: Gym['category'];
 }
 
+// Calendar types
+export interface WorkoutSession {
+  id: string;
+  startTime: Date;
+  endTime: Date;
+  workoutType: 'cardio' | 'strength' | 'yoga' | 'running' | 'custom';
+  title: string;
+  notes?: string;
+  isRecurring: boolean;
+  recurringPattern?: RecurringPattern;
+  gymId?: string;
+  status: 'planned' | 'active' | 'completed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecurringPattern {
+  type: 'daily' | 'weekly' | 'custom';
+  interval: number; // For custom: every X days
+  endDate?: Date;
+  daysOfWeek?: number[]; // For weekly: [1,3,5] for Mon,Wed,Fri
+}
+
+export interface CalendarDay {
+  date: Date;
+  isToday: boolean;
+  hasWorkouts: boolean;
+  workouts: WorkoutSession[];
+  isWeekend: boolean;
+  isPast: boolean;
+}
+
+export interface TimeSlot {
+  hour: number;
+  minute: number;
+  isSelected: boolean;
+  hasWorkout: boolean;
+  workout?: WorkoutSession;
+}
+
+export interface CalendarView {
+  type: 'today' | 'week' | 'month';
+  startDate: Date;
+  endDate: Date;
+}
+
+export interface TimeSelection {
+  isSelecting: boolean;
+  startDate: Date;
+  startHour: number;
+  startMinute: number;
+  endDate: Date;
+  endHour: number;
+  endMinute: number;
+  isDragging: boolean;
+}
+
 // Context types
 export interface AuthContextType {
   user: User | null;
@@ -158,10 +244,14 @@ export interface AuthContextType {
 export interface LocationContextType {
   currentLocation: LocationData | null;
   isTracking: boolean;
+  isGeofencingActive: boolean;
   startTracking: () => Promise<void>;
   stopTracking: () => void;
+  startGeofencing: (userId: string, followedGyms: Gym[]) => Promise<void>;
+  stopGeofencing: () => Promise<void>;
   requestPermissions: () => Promise<boolean>;
   hasPermissions: boolean;
+  hasBackgroundPermission: boolean;
 }
 
 export interface AppContextType {
@@ -169,16 +259,22 @@ export interface AppContextType {
   gyms: Gym[];
   friends: User[];
   presence: Presence[];
+  workoutHistory: WorkoutHistory[];
   isLoading: boolean;
   refreshData: () => Promise<void>;
   addSchedule: (schedule: CreateScheduleForm) => Promise<void>;
   updateSchedule: (id: string, updates: Partial<Schedule>) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
+  deleteRecurringSchedule: (userId: string, workoutType: string, recurringPattern: any, startTime: string) => Promise<void>;
   addFriend: (email: string) => Promise<void>;
+  addFriendInstant: (friendId: string) => Promise<void>;
   removeFriend: (userId: string) => Promise<void>;
   followGym: (gymId: string) => Promise<void>;
   unfollowGym: (gymId: string) => Promise<void>;
   checkIn: (gymId: string) => Promise<void>;
   checkOut: (gymId: string) => Promise<void>;
+  getWorkoutHistory: (userId: string, startDate?: Date, endDate?: Date) => Promise<WorkoutHistory[]>;
+  updateWorkoutHistory: (id: string, updates: Partial<WorkoutHistory>) => Promise<void>;
+  deleteWorkoutHistory: (id: string) => Promise<void>;
 }
 

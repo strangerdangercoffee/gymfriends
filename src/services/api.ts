@@ -3,7 +3,9 @@ import {
   User, 
   Gym, 
   Schedule, 
-  Presence, 
+  Presence,
+  WorkoutHistory,
+  WorkoutExercise,
   CreateScheduleForm, 
   CreateGymForm,
   ApiResponse,
@@ -21,6 +23,7 @@ const transformUserFromDB = (dbUser: any): User => ({
   privacySettings: {
     shareLocation: dbUser.privacy_settings?.share_location ?? true,
     shareSchedule: dbUser.privacy_settings?.share_schedule ?? true,
+    autoCheckIn: dbUser.privacy_settings?.auto_check_in ?? false,
   },
   createdAt: dbUser.created_at,
   updatedAt: dbUser.updated_at,
@@ -36,6 +39,7 @@ const transformUserToDB = (user: Partial<User>): any => ({
   privacy_settings: user.privacySettings ? {
     share_location: user.privacySettings.shareLocation,
     share_schedule: user.privacySettings.shareSchedule,
+    auto_check_in: user.privacySettings.autoCheckIn,
   } : undefined,
 });
 
@@ -177,6 +181,83 @@ export const userApi = {
       .eq('id', userId);
 
     if (error) throw error;
+  },
+
+  async addFriendInstant(userId: string, friendId: string): Promise<void> {
+    // Add friend instantly without invitation (for QR code scanning)
+    // Both users are added to each other's friends list
+    
+    console.log('Adding friend instantly:', { userId, friendId });
+    
+    // Get both users separately for better error handling
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, friends')
+      .in('id', [userId, friendId]);
+
+    if (usersError) {
+      console.error('Error fetching users:', usersError);
+      throw new Error(`Database error: ${usersError.message}`);
+    }
+
+    if (!users || users.length === 0) {
+      console.error('No users found');
+      throw new Error('Users not found in database');
+    }
+
+    console.log('Found users:', users.length, users.map(u => u.id));
+
+    const currentUser = users.find(u => u.id === userId);
+    const friendUser = users.find(u => u.id === friendId);
+
+    if (!currentUser) {
+      console.error('Current user not found:', userId);
+      throw new Error('Your user account was not found. Please log out and log back in.');
+    }
+
+    if (!friendUser) {
+      console.error('Friend user not found:', friendId);
+      throw new Error('Friend user not found. They may have deleted their account.');
+    }
+
+    // Check if they're already friends
+    if (currentUser.friends?.includes(friendId)) {
+      throw new Error('Already friends');
+    }
+
+    // Add to current user's friends list
+    const updatedUserFriends = [...(currentUser.friends || []), friendId];
+    console.log('Updating current user friends list');
+    const { error: userError } = await supabase
+      .from('users')
+      .update({ 
+        friends: updatedUserFriends,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+
+    if (userError) {
+      console.error('Error updating current user:', userError);
+      throw new Error(`Failed to update your friends list: ${userError.message}`);
+    }
+
+    // Add to friend's friends list (mutual friendship)
+    const updatedFriendFriends = [...(friendUser.friends || []), userId];
+    console.log('Updating friend user friends list');
+    const { error: friendError } = await supabase
+      .from('users')
+      .update({ 
+        friends: updatedFriendFriends,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', friendId);
+
+    if (friendError) {
+      console.error('Error updating friend:', friendError);
+      throw new Error(`Failed to update friend's list: ${friendError.message}`);
+    }
+
+    console.log('Successfully added friends!');
   },
 
   async removeFriend(userId: string, friendId: string): Promise<void> {
@@ -393,6 +474,20 @@ export const scheduleApi = {
     if (error) throw error;
   },
 
+  async deleteRecurringSchedule(userId: string, workoutType: string, recurringPattern: any, startTime: string): Promise<void> {
+    // Delete all instances of a recurring workout
+    // Match by user, workout type, recurring pattern, and approximate start time
+    const { error } = await supabase
+      .from('schedules')
+      .delete()
+      .eq('user_id', userId)
+      .eq('workout_type', workoutType)
+      .eq('is_recurring', true)
+      .eq('recurring_pattern', recurringPattern);
+
+    if (error) throw error;
+  },
+
   async getGymSchedules(gymId: string, startDate?: Date, endDate?: Date): Promise<Schedule[]> {
     let query = supabase
       .from('schedules')
@@ -518,7 +613,7 @@ export const presenceApi = {
   },
 
   async getAllActivePresence(): Promise<Presence[]> {
-    const { data, error } = await supabase
+    const { data, error} = await supabase
       .from('presence')
       .select('*')
       .eq('is_active', true);
@@ -527,4 +622,124 @@ export const presenceApi = {
     return (data || []).map(transformPresenceFromDB);
   }
 };
+
+// Workout History API functions
+export const workoutHistoryApi = {
+  async getWorkoutHistory(userId: string, startDate?: Date, endDate?: Date): Promise<WorkoutHistory[]> {
+    let query = supabase
+      .from('workout_history')
+      .select('*')
+      .eq('user_id', userId)
+      .order('start_time', { ascending: false });
+
+    if (startDate) {
+      query = query.gte('start_time', startDate.toISOString());
+    }
+
+    if (endDate) {
+      query = query.lte('end_time', endDate.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    return (data || []).map(transformWorkoutHistoryFromDB);
+  },
+
+  async getWorkoutHistoryById(id: string): Promise<WorkoutHistory> {
+    const { data, error } = await supabase
+      .from('workout_history')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    return transformWorkoutHistoryFromDB(data);
+  },
+
+  async createWorkoutHistory(workoutData: Omit<WorkoutHistory, 'id' | 'createdAt' | 'updatedAt'>): Promise<WorkoutHistory> {
+    const dbData = {
+      user_id: workoutData.userId,
+      gym_id: workoutData.gymId,
+      start_time: workoutData.startTime,
+      end_time: workoutData.endTime,
+      duration: workoutData.duration,
+      workout_type: workoutData.workoutType,
+      title: workoutData.title,
+      notes: workoutData.notes,
+      exercises: workoutData.exercises || [],
+      presence_id: workoutData.presenceId,
+    };
+
+    const { data, error } = await supabase
+      .from('workout_history')
+      .insert([dbData])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return transformWorkoutHistoryFromDB(data);
+  },
+
+  async updateWorkoutHistory(id: string, updates: Partial<WorkoutHistory>): Promise<WorkoutHistory> {
+    const dbUpdates: any = {};
+
+    if (updates.workoutType !== undefined) dbUpdates.workout_type = updates.workoutType;
+    if (updates.title !== undefined) dbUpdates.title = updates.title;
+    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+    if (updates.exercises !== undefined) dbUpdates.exercises = updates.exercises;
+    if (updates.startTime !== undefined) dbUpdates.start_time = updates.startTime;
+    if (updates.endTime !== undefined) dbUpdates.endTime = updates.endTime;
+    if (updates.duration !== undefined) dbUpdates.duration = updates.duration;
+
+    const { data, error } = await supabase
+      .from('workout_history')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return transformWorkoutHistoryFromDB(data);
+  },
+
+  async deleteWorkoutHistory(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('workout_history')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  },
+
+  async getWorkoutHistoryByPresenceId(presenceId: string): Promise<WorkoutHistory | null> {
+    const { data, error } = await supabase
+      .from('workout_history')
+      .select('*')
+      .eq('presence_id', presenceId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "not found" error
+    return data ? transformWorkoutHistoryFromDB(data) : null;
+  }
+};
+
+// Transform functions for workout history
+function transformWorkoutHistoryFromDB(data: any): WorkoutHistory {
+  return {
+    id: data.id,
+    userId: data.user_id,
+    gymId: data.gym_id,
+    startTime: data.start_time,
+    endTime: data.end_time,
+    duration: data.duration,
+    workoutType: data.workout_type,
+    title: data.title,
+    notes: data.notes,
+    exercises: data.exercises || [],
+    presenceId: data.presence_id,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+}
 

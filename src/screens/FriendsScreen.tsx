@@ -16,13 +16,17 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import FriendInvitationModal from '../components/FriendInvitationModal';
+import QRCodeDisplayModal from '../components/QRCodeDisplayModal';
+import QRCodeScannerModal from '../components/QRCodeScannerModal';
 
 const FriendsScreen: React.FC = () => {
-  const { friends, gyms, presence, isLoading, addFriend, refreshData } = useApp();
+  const { friends, gyms, presence, isLoading, addFriend, addFriendInstant, refreshData } = useApp();
   const { user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showQRDisplay, setShowQRDisplay] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
   const [friendEmail, setFriendEmail] = useState('');
   const [addingFriend, setAddingFriend] = useState(false);
 
@@ -93,6 +97,25 @@ const FriendsScreen: React.FC = () => {
       }
     } finally {
       setAddingFriend(false);
+    }
+  };
+
+  const handleQRScan = async (friendId: string, friendName: string) => {
+    try {
+      await addFriendInstant(friendId);
+      setShowQRScanner(false);
+      Alert.alert(
+        'Friend Added!',
+        `You and ${friendName} are now friends!`,
+        [{ text: 'Awesome!', style: 'default' }]
+      );
+    } catch (error: any) {
+      setShowQRScanner(false);
+      if (error.message.includes('Already friends')) {
+        Alert.alert('Already Friends', `You're already friends with ${friendName}!`);
+      } else {
+        Alert.alert('Error', 'Failed to add friend. Please try again.');
+      }
     }
   };
 
@@ -197,6 +220,33 @@ const FriendsScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       {/* Header Actions */}
+      {/* QR Code Action Buttons */}
+      <View style={styles.qrActionContainer}>
+        <TouchableOpacity
+          style={styles.qrActionButton}
+          onPress={() => setShowQRDisplay(true)}
+        >
+          <View style={styles.qrIconContainer}>
+            <Ionicons name="qr-code-outline" size={32} color="#007AFF" />
+          </View>
+          <Text style={styles.qrActionText}>Show My Code</Text>
+          <Text style={styles.qrActionSubtext}>Let others scan</Text>
+        </TouchableOpacity>
+
+        <View style={styles.qrDivider} />
+
+        <TouchableOpacity
+          style={styles.qrActionButton}
+          onPress={() => setShowQRScanner(true)}
+        >
+          <View style={styles.qrIconContainer}>
+            <Ionicons name="scan-outline" size={32} color="#34C759" />
+          </View>
+          <Text style={styles.qrActionText}>Scan QR Code</Text>
+          <Text style={styles.qrActionSubtext}>Add instantly</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.headerActions}>
         <Button
           title="Invite Friend"
@@ -214,7 +264,7 @@ const FriendsScreen: React.FC = () => {
       {/* Add Friend Form */}
       {showAddFriend && renderAddFriendForm()}
 
-      {/* Invitation Modal */}
+      {/* Modals */}
       <FriendInvitationModal
         visible={showInviteModal}
         onClose={() => setShowInviteModal(false)}
@@ -222,6 +272,17 @@ const FriendsScreen: React.FC = () => {
           setShowInviteModal(false);
           // Optionally refresh data or show success message
         }}
+      />
+
+      <QRCodeDisplayModal
+        visible={showQRDisplay}
+        onClose={() => setShowQRDisplay(false)}
+      />
+
+      <QRCodeScannerModal
+        visible={showQRScanner}
+        onClose={() => setShowQRScanner(false)}
+        onScan={handleQRScan}
       />
 
       {/* Friends List */}
@@ -274,6 +335,52 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F2F2F7',
+  },
+  qrActionContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  qrActionButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+  },
+  qrIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#F8F9FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  qrActionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+  },
+  qrActionSubtext: {
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  qrDivider: {
+    width: 1,
+    backgroundColor: '#E5E5E7',
+    marginVertical: 16,
   },
   headerActions: {
     flexDirection: 'row',
