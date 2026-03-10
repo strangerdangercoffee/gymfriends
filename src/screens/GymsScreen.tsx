@@ -23,19 +23,17 @@ const GymsScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<'all' | 'traditional' | 'climbing' | 'specialty' | 'crossfit' | 'martial_arts'>('all');
 
-  // Only show followed gyms in the main view
+  // Only show followed gyms in the main view (all are climbing gyms)
   const followedGyms = gyms.filter(gym => 
     user?.followedGyms?.includes(gym.id)
   );
 
-  // For search modal - filter all gyms based on search query and category
+  // For search modal - filter by search only (only climbing gyms are loaded)
   const searchFilteredGyms = gyms.filter(gym => {
     const matchesSearch = gym.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          gym.address.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'all' || gym.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    return matchesSearch;
   });
 
   // Helper function to check if user is currently at a specific gym
@@ -96,7 +94,6 @@ const GymsScreen: React.FC = () => {
 
   const openSearchModal = () => {
     setSearchQuery('');
-    setSelectedCategory('all');
     setSearchModalVisible(true);
   };
 
@@ -123,40 +120,6 @@ const GymsScreen: React.FC = () => {
     }
   };
 
-  const getCategoryIcon = (category: Gym['category']) => {
-    switch (category) {
-      case 'traditional':
-        return 'fitness-outline';
-      case 'climbing':
-        return 'trending-up-outline';
-      case 'specialty':
-        return 'star-outline';
-      case 'crossfit':
-        return 'flash-outline';
-      case 'martial_arts':
-        return 'shield-outline';
-      default:
-        return 'fitness-outline';
-    }
-  };
-
-  const getCategoryColor = (category: Gym['category']) => {
-    switch (category) {
-      case 'traditional':
-        return '#007AFF';
-      case 'climbing':
-        return '#FF9500';
-      case 'specialty':
-        return '#AF52DE';
-      case 'crossfit':
-        return '#FF3B30';
-      case 'martial_arts':
-        return '#34C759';
-      default:
-        return '#007AFF';
-    }
-  };
-
   const renderFollowedGymCard = ({ item }: { item: Gym }) => {
     const isAtGym = isUserAtGym(item.id);
     const currentUserCount = item.currentUsers?.length || 0;
@@ -166,18 +129,24 @@ const GymsScreen: React.FC = () => {
       <Card style={styles.gymCard}>
         <View style={styles.gymHeader}>
           <View style={styles.gymInfo}>
-            <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(item.category) }]}>
-              <Ionicons 
-                name={getCategoryIcon(item.category) as any} 
-                size={20} 
-                color="white" 
-              />
+            <View style={[styles.gymIcon, { backgroundColor: '#FF9500' }]}>
+              <Ionicons name="trending-up-outline" size={20} color="white" />
             </View>
             <View style={styles.gymDetails}>
               <Text style={styles.gymName}>{item.name}</Text>
               <Text style={styles.gymAddress}>{item.address}</Text>
             </View>
           </View>
+          <TouchableOpacity
+            style={styles.followButton}
+            onPress={() => handleUnfollowGym(item)}
+          >
+            <Ionicons 
+              name="heart" 
+              size={20} 
+              color="#FF3B30" 
+            />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.gymStats}>
@@ -225,12 +194,8 @@ const GymsScreen: React.FC = () => {
       <Card style={styles.searchGymCard}>
         <View style={styles.gymHeader}>
           <View style={styles.gymInfo}>
-            <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(item.category) }]}>
-              <Ionicons 
-                name={getCategoryIcon(item.category) as any} 
-                size={20} 
-                color="white" 
-              />
+            <View style={[styles.gymIcon, { backgroundColor: '#FF9500' }]}>
+              <Ionicons name="trending-up-outline" size={20} color="white" />
             </View>
             <View style={styles.gymDetails}>
               <Text style={styles.gymName}>{item.name}</Text>
@@ -280,21 +245,12 @@ const GymsScreen: React.FC = () => {
   const renderSearchEmptyState = () => (
     <View style={styles.emptyState}>
       <Ionicons name="search-outline" size={64} color="#C7C7CC" />
-      <Text style={styles.emptyTitle}>No gyms found</Text>
+      <Text style={styles.emptyTitle}>No climbing gyms found</Text>
       <Text style={styles.emptySubtitle}>
-        Try a different search term or category
+        Try a different search term
       </Text>
     </View>
   );
-
-  const categories = [
-    { key: 'all', label: 'All' },
-    { key: 'traditional', label: 'Traditional' },
-    { key: 'climbing', label: 'Climbing' },
-    { key: 'specialty', label: 'Specialty' },
-    { key: 'crossfit', label: 'CrossFit' },
-    { key: 'martial_arts', label: 'Martial Arts' },
-  ] as const;
 
   return (
     <View style={styles.container}>
@@ -337,7 +293,7 @@ const GymsScreen: React.FC = () => {
             <TouchableOpacity onPress={closeSearchModal}>
               <Ionicons name="close" size={24} color="#007AFF" />
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Find Gyms</Text>
+            <Text style={styles.modalTitle}>Find Climbing Gyms</Text>
             <View style={{ width: 24 }} />
           </View>
 
@@ -346,39 +302,10 @@ const GymsScreen: React.FC = () => {
             <Ionicons name="search" size={20} color="#8E8E93" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search gyms by name or address..."
+                placeholder="Search climbing gyms by name or address..."
               value={searchQuery}
               onChangeText={setSearchQuery}
               autoFocus
-            />
-          </View>
-
-          {/* Category Filter */}
-          <View style={styles.categoryFilter}>
-            <FlatList
-              data={categories}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.categoryButton,
-                    selectedCategory === item.key && styles.categoryButtonActive,
-                  ]}
-                  onPress={() => setSelectedCategory(item.key)}
-                >
-                  <Text
-                    style={[
-                      styles.categoryText,
-                      selectedCategory === item.key && styles.categoryTextActive,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              keyExtractor={(item) => item.key}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoryList}
             />
           </View>
 
@@ -442,7 +369,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  categoryIcon: {
+  gymIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -548,33 +475,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: '#000',
-  },
-  categoryFilter: {
-    backgroundColor: 'white',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
-  },
-  categoryList: {
-    paddingHorizontal: 16,
-  },
-  categoryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    borderRadius: 20,
-    backgroundColor: '#F2F2F7',
-  },
-  categoryButtonActive: {
-    backgroundColor: '#007AFF',
-  },
-  categoryText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#8E8E93',
-  },
-  categoryTextActive: {
-    color: 'white',
   },
   searchListContainer: {
     paddingHorizontal: 16,

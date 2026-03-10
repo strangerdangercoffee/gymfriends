@@ -1,22 +1,32 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { RootTabParamList, ScheduleStackParamList } from '../types';
+import { useOnboarding } from '../context/OnboardingContext';
+import { notificationService } from '../services/notifications';
+import { RootTabParamList, ScheduleStackParamList, GroupsStackParamList, MapStackParamList } from '../types';
 
 // Import screens
 import AuthScreen from '../screens/AuthScreen';
+import OnboardingScreen from '../screens/OnboardingScreen';
 import ScheduleScreen from '../screens/ScheduleScreen';
 import AddScheduleScreen from '../screens/AddScheduleScreen';
-import FriendsScreen from '../screens/FriendsScreen';
-import GymsScreen from '../screens/GymsScreen';
+import ConnectionsScreen from '../screens/ConnectionsScreen';
+import GroupChatScreen from '../screens/GroupChatScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import FeedScreen from '../screens/FeedScreen';
+import AreaFeedScreen from '../screens/AreaFeedScreen';
+import AreaDetailScreen from '../screens/AreaDetailScreen';
+import AreasMapScreen from '../screens/AreasMapScreen';
+import GlobeMapScreen from '../screens/GlobeMapScreen';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const ScheduleStack = createStackNavigator<ScheduleStackParamList>();
+const GroupsStack = createStackNavigator<GroupsStackParamList>();
+const MapStack = createStackNavigator<MapStackParamList>();
 
 const LoadingScreen: React.FC = () => (
   <View style={styles.loadingContainer}>
@@ -54,6 +64,81 @@ const ScheduleStackNavigator: React.FC = () => {
   );
 };
 
+const GroupsStackNavigator: React.FC = () => {
+  return (
+    <GroupsStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: 'white',
+          borderBottomWidth: 1,
+          borderBottomColor: '#E5E5E7',
+        },
+        headerTitleStyle: {
+          fontWeight: '600',
+          fontSize: 18,
+        },
+        headerTintColor: '#000',
+      }}
+    >
+      <GroupsStack.Screen 
+        name="GroupsMain" 
+        component={ConnectionsScreen}
+        options={{ title: 'Connections', headerShown: false }}
+      />
+      <GroupsStack.Screen 
+        name="GroupChat" 
+        component={GroupChatScreen}
+        options={({ route }) => ({ title: route.params.groupName })}
+      />
+      <GroupsStack.Screen 
+        name="AreaFeed" 
+        component={AreaFeedScreen}
+        options={{ title: 'Area Feeds' }}
+      />
+      <GroupsStack.Screen 
+        name="GlobeMap" 
+        component={GlobeMapScreen}
+        options={{ title: 'Areas Map', headerShown: false }}
+      />
+      <GroupsStack.Screen 
+        name="AreaDetail" 
+        component={AreaDetailScreen}
+        options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
+      />
+    </GroupsStack.Navigator>
+  );
+};
+
+const MapStackNavigator: React.FC = () => {
+  return (
+    <MapStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: 'white',
+          borderBottomWidth: 1,
+          borderBottomColor: '#E5E5E7',
+        },
+        headerTitleStyle: {
+          fontWeight: '600',
+          fontSize: 18,
+        },
+        headerTintColor: '#000',
+      }}
+    >
+      <MapStack.Screen 
+        name="MapMain" 
+        component={GlobeMapScreen}
+        options={{ title: 'Map', headerShown: false }}
+      />
+      <MapStack.Screen 
+        name="AreaDetail" 
+        component={AreaDetailScreen}
+        options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
+      />
+    </MapStack.Navigator>
+  );
+};
+
 const TabNavigator: React.FC = () => {
   return (
     <Tab.Navigator
@@ -65,8 +150,10 @@ const TabNavigator: React.FC = () => {
             iconName = focused ? 'calendar' : 'calendar-outline';
           } else if (route.name === 'Friends') {
             iconName = focused ? 'people' : 'people-outline';
-          } else if (route.name === 'Gyms') {
-            iconName = focused ? 'fitness' : 'fitness-outline';
+          } else if (route.name === 'Map') {
+            iconName = focused ? 'globe' : 'globe-outline';
+          } else if (route.name === 'Feed') {
+            iconName = focused ? 'newspaper' : 'newspaper-outline';
           } else if (route.name === 'Profile') {
             iconName = focused ? 'person' : 'person-outline';
           } else {
@@ -104,13 +191,18 @@ const TabNavigator: React.FC = () => {
       />
       <Tab.Screen 
         name="Friends" 
-        component={FriendsScreen}
-        options={{ title: 'Friends' }}
+        component={GroupsStackNavigator}
+        options={{ title: 'Connections', headerShown: false }}
       />
       <Tab.Screen 
-        name="Gyms" 
-        component={GymsScreen}
-        options={{ title: 'Gyms' }}
+        name="Map" 
+        component={MapStackNavigator}
+        options={{ title: 'Map', headerShown: false }}
+      />
+      <Tab.Screen 
+        name="Feed" 
+        component={FeedScreen}
+        options={{ title: 'Feed', headerShown: false }}
       />
       <Tab.Screen 
         name="Profile" 
@@ -122,15 +214,57 @@ const TabNavigator: React.FC = () => {
 };
 
 const AppNavigator: React.FC = () => {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
+  const { hasCompletedOnboarding, isLoading: onboardingLoading } = useOnboarding();
+  const lastLoggedScreenRef = useRef<string | null>(null);
 
-  if (isLoading) {
+  useEffect(() => {
+    let screen: string;
+    if (authLoading || onboardingLoading) {
+      screen = 'LoadingScreen';
+    } else if (!user) {
+      screen = 'AuthScreen';
+    } else if (!hasCompletedOnboarding) {
+      screen = 'OnboardingScreen';
+    } else {
+      screen = 'TabNavigator';
+    }
+    if (lastLoggedScreenRef.current !== screen) {
+      console.log('[Onboarding] Screen decision:', {
+        screen,
+        authLoading,
+        onboardingLoading,
+        userId: user?.id ?? null,
+        hasCompletedOnboarding,
+      });
+      lastLoggedScreenRef.current = screen;
+    }
+  }, [authLoading, onboardingLoading, user?.id, hasCompletedOnboarding]);
+
+  useEffect(() => {
+    if (user && hasCompletedOnboarding) {
+      notificationService.getExpoPushToken().then((token) => {
+        if (token) {
+          notificationService.savePushToken(user.id, token).then(
+            () => console.log('Push token registered for user:', user.id),
+            (err) => console.error('Error registering push token:', err)
+          );
+        }
+      });
+    }
+  }, [user?.id, hasCompletedOnboarding]);
+
+  if (authLoading || onboardingLoading) {
     return <LoadingScreen />;
   }
 
   return (
     <NavigationContainer>
-      {user ? <TabNavigator /> : <AuthScreen />}
+      {user ? (
+        !hasCompletedOnboarding ? <OnboardingScreen /> : <TabNavigator />
+      ) : (
+        <AuthScreen />
+      )}
     </NavigationContainer>
   );
 };

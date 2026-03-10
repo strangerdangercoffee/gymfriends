@@ -7,14 +7,16 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import Card from '../components/Card';
 
 const AuthScreen: React.FC = () => {
-  const { signIn, signUp, isLoading } = useAuth();
+  const { signIn, signUp, signInWithGoogle, signInWithApple, isLoading } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -59,6 +61,22 @@ const AuthScreen: React.FC = () => {
     setPassword('');
     setName('');
     setConfirmPassword('');
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to sign in with Google');
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      await signInWithApple();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to sign in with Apple');
+    }
   };
 
   return (
@@ -109,6 +127,8 @@ const AuthScreen: React.FC = () => {
             onChangeText={setPassword}
             secureTextEntry
             autoCapitalize="none"
+            textContentType="none"
+            autoComplete="off"
           />
 
           {isSignUp && (
@@ -119,6 +139,8 @@ const AuthScreen: React.FC = () => {
               onChangeText={setConfirmPassword}
               secureTextEntry
               autoCapitalize="none"
+              textContentType="none"
+              autoComplete="off"
             />
           )}
 
@@ -128,6 +150,34 @@ const AuthScreen: React.FC = () => {
             loading={isLoading}
             style={styles.submitButton}
           />
+
+          <View style={styles.dividerContainer}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.divider} />
+          </View>
+
+          <View style={styles.socialButtons}>
+            <TouchableOpacity
+              style={[styles.socialButton, styles.googleButton]}
+              onPress={handleGoogleSignIn}
+              disabled={isLoading}
+            >
+              <Ionicons name="logo-google" size={20} color="#FFF" />
+              <Text style={styles.socialButtonText}>Continue with Google</Text>
+            </TouchableOpacity>
+
+            {Platform.OS === 'ios' && (
+              <TouchableOpacity
+                style={[styles.socialButton, styles.appleButton]}
+                onPress={handleAppleSignIn}
+                disabled={isLoading}
+              >
+                <Ionicons name="logo-apple" size={20} color="#FFF" />
+                <Text style={styles.socialButtonText}>Continue with Apple</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
           <View style={styles.toggleContainer}>
             <Text style={styles.toggleText}>
@@ -141,28 +191,6 @@ const AuthScreen: React.FC = () => {
             />
           </View>
         </Card>
-
-        <View style={styles.features}>
-          <Text style={styles.featuresTitle}>Features</Text>
-          <View style={styles.featureList}>
-            <View style={styles.featureItem}>
-              <Text style={styles.featureIcon}>📅</Text>
-              <Text style={styles.featureText}>Schedule workouts</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <Text style={styles.featureIcon}>👥</Text>
-              <Text style={styles.featureText}>Connect with friends</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <Text style={styles.featureIcon}>🏋️</Text>
-              <Text style={styles.featureText}>Find nearby gyms</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <Text style={styles.featureIcon}>📍</Text>
-              <Text style={styles.featureText}>Real-time check-ins</Text>
-            </View>
-          </View>
-        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -218,6 +246,46 @@ const styles = StyleSheet.create({
   },
   toggleButton: {
     minWidth: 120,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E5E7',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    color: '#8E8E93',
+    fontWeight: '500',
+  },
+  socialButtons: {
+    gap: 12,
+    marginBottom: 16,
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    gap: 12,
+  },
+  googleButton: {
+    backgroundColor: '#4285F4',
+  },
+  appleButton: {
+    backgroundColor: '#000000',
+  },
+  socialButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFF',
   },
   features: {
     alignItems: 'center',

@@ -1,0 +1,36 @@
+diff --git a/node_modules/@react-navigation/stack/lib/module/views/Stack/CardContent.js b/node_modules/@react-navigation/stack/lib/module/views/Stack/CardContent.js
+index 804969a..7a8c2e1 100644
+--- a/node_modules/@react-navigation/stack/lib/module/views/Stack/CardContent.js
++++ b/node_modules/@react-navigation/stack/lib/module/views/Stack/CardContent.js
+@@ -14,8 +14,9 @@ export function CardContent({
+ }) {
+   const [fill, setFill] = React.useState(false);
+   React.useEffect(() => {
+-    if (typeof document === 'undefined' || !document.body) {
+-      // Only run when DOM is available
++    // Skip entire block in React Native (no full DOM; document.head / .remove may be missing)
++    if (typeof document === 'undefined' || !document.body || !document.head) {
+       return;
+     }
+     const width = document.body.clientWidth;
+@@ -30,7 +31,7 @@ export function CardContent({
+     const isFullHeight = height === layout.height;
+     const id = '__react-navigation-stack-mobile-chrome-viewport-fix';
+     let unsubscribe;
+-    if (isFullHeight && navigator.maxTouchPoints > 0) {
++    if (isFullHeight && navigator.maxTouchPoints > 0 && document.head) {
+       const style = document.getElementById(id) ?? document.createElement('style');
+       style.id = id;
+       const updateStyle = () => {
+@@ -45,8 +46,10 @@ export function CardContent({
+       };
+     } else {
+       // Remove the workaround if the stack does not occupy the whole
+-      // height of the page
+-      document.getElementById(id)?.remove();
++      // height of the page (guard for React Native where .remove may be undefined)
++      const el = document.getElementById(id);
++      if (el && typeof el.remove === 'function') el.remove();
+     }
+ 
+     // eslint-disable-next-line @eslint-react/hooks-extra/no-direct-set-state-in-use-effect

@@ -15,13 +15,15 @@ import { useAuth } from '../context/AuthContext';
 interface QRCodeScannerModalProps {
   visible: boolean;
   onClose: () => void;
-  onScan: (userId: string, userName: string) => Promise<void>;
+  onScan: ((userId: string, userName: string) => Promise<void>) | ((data: string) => Promise<void>);
+  mode?: 'user' | 'any'; // 'user' for friend scanning, 'any' for any QR code type
 }
 
 const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
   visible,
   onClose,
   onScan,
+  mode = 'user',
 }) => {
   const { user } = useAuth();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -47,15 +49,32 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     setIsProcessing(true);
 
     try {
-      // Parse QR code data
       console.log('Scanned QR code data:', data);
+
+      // If mode is 'any', pass raw data to callback
+      if (mode === 'any') {
+        // Check if onScan accepts a string (for group QR codes)
+        if (onScan.length === 1) {
+          try {
+            await (onScan as (data: string) => Promise<void>)(data);
+            // If successful, close the scanner
+            handleClose();
+            return;
+          } catch (error) {
+            // Let the error propagate to the outer catch block
+            throw error;
+          }
+        }
+      }
+
+      // Parse QR code data for user mode
       const qrData = JSON.parse(data);
       console.log('Parsed QR data:', qrData);
 
-      // Validate QR code format
+      // Validate QR code format for user mode
       if (qrData.type !== 'gymfriends_user' || !qrData.userId) {
         console.error('Invalid QR code format:', qrData);
-        Alert.alert('Invalid QR Code', 'This is not a valid GymFriends QR code.');
+        Alert.alert('Invalid QR Code', 'This is not a valid GymFriends user QR code.');
         resetScanner();
         return;
       }
@@ -70,7 +89,7 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
 
       // Call the onScan callback to add the friend
       console.log('Calling onScan with:', { friendId: qrData.userId, name: qrData.name });
-      await onScan(qrData.userId, qrData.name);
+      await (onScan as (userId: string, userName: string) => Promise<void>)(qrData.userId, qrData.name);
       
     } catch (error) {
       console.error('Error scanning QR code:', error);

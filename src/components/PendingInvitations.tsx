@@ -99,15 +99,27 @@ const PendingInvitations: React.FC = () => {
     });
   };
 
-  const renderInvitation = ({ item }: { item: FriendInvitation }) => (
-    <Card style={styles.invitationCard}>
-      <View style={styles.invitationHeader}>
-        <View style={styles.invitationInfo}>
-          <Text style={styles.inviteeEmail}>{item.invitee_email}</Text>
-          <Text style={styles.invitationDate}>
-            Sent {formatDate(item.created_at)}
-          </Text>
-        </View>
+  const renderInvitation = ({ item }: { item: FriendInvitation }) => {
+    const contactInfo = item.inviteeEmail || item.inviteePhone || 'Unknown';
+    const contactType = item.inviteeEmail ? 'email' : 'phone';
+    
+    return (
+      <Card style={styles.invitationCard}>
+        <View style={styles.invitationHeader}>
+          <View style={styles.invitationInfo}>
+            <View style={styles.contactRow}>
+              <Ionicons
+                name={contactType === 'email' ? 'mail' : 'chatbubble'}
+                size={16}
+                color="#8E8E93"
+                style={styles.contactIcon}
+              />
+              <Text style={styles.inviteeContact}>{contactInfo}</Text>
+            </View>
+            <Text style={styles.invitationDate}>
+              Sent {formatDate(item.createdAt)}
+            </Text>
+          </View>
         <View style={styles.statusContainer}>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
             <Ionicons 
@@ -123,7 +135,7 @@ const PendingInvitations: React.FC = () => {
       {item.status === 'pending' && (
         <View style={styles.invitationActions}>
           <Text style={styles.expiresText}>
-            Expires {formatDate(item.expires_at)}
+            Expires {formatDate(item.expiresAt)}
           </Text>
           <TouchableOpacity
             style={styles.cancelButton}
@@ -139,12 +151,13 @@ const PendingInvitations: React.FC = () => {
         <View style={styles.acceptedInfo}>
           <Ionicons name="checkmark-circle" size={16} color="#34C759" />
           <Text style={styles.acceptedText}>
-            Accepted {item.accepted_at ? formatDate(item.accepted_at) : ''}
+            Accepted {item.acceptedAt ? formatDate(item.acceptedAt) : ''}
           </Text>
         </View>
       )}
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -211,11 +224,18 @@ const styles = StyleSheet.create({
   invitationInfo: {
     flex: 1,
   },
-  inviteeEmail: {
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  contactIcon: {
+    marginRight: 6,
+  },
+  inviteeContact: {
     fontSize: 16,
     fontWeight: '500',
     color: '#000',
-    marginBottom: 4,
   },
   invitationDate: {
     fontSize: 14,

@@ -1,0 +1,36 @@
+{
+  "cli": {
+    "version": ">= 16.32.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "default"
+      },
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "ios": {
+        "resourceClass": "default"
+      },
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

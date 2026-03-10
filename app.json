@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "gymfriends",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -16,10 +17,13 @@
     ],
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.gymfriends.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs location access to detect when you're at the gym.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to automatically check you in when you arrive at the gym."
-      }
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to automatically check you in when you arrive at the gym.",
+        "UIBackgroundModes": ["location"]
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -47,10 +51,11 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
-          "color": "#ffffff"
+          "mode": "production"
         }
-      ]
+      ],
+      "expo-apple-authentication",
+      "expo-asset"
     ],
     "extra": {
       "eas": {

@@ -166,6 +166,22 @@ export class LocationService {
 
     return nearbyGyms;
   }
+
+  findNearbyAreas(
+    userLat: number,
+    userLon: number,
+    areas: Array<{ id: string; latitude: number; longitude: number; geofenceRadiusM: number }>
+  ): Array<{ id: string; distance: number }> {
+    return areas
+      .map((area) => ({
+        id: area.id,
+        distance: this.calculateDistance(userLat, userLon, area.latitude, area.longitude),
+        radius: area.geofenceRadiusM,
+      }))
+      .filter((a) => a.distance <= a.radius)
+      .map(({ id, distance }) => ({ id, distance }))
+      .sort((a, b) => a.distance - b.distance);
+  }
 }
 
 export const locationService = LocationService.getInstance();

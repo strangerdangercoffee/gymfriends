@@ -14,23 +14,39 @@ import { useAuth } from '../context/AuthContext';
 interface QRCodeDisplayModalProps {
   visible: boolean;
   onClose: () => void;
+  groupId?: string;
+  groupName?: string;
 }
 
 const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
   visible,
   onClose,
+  groupId,
+  groupName,
 }) => {
   const { user } = useAuth();
 
   if (!user) return null;
 
-  // Create QR code data with user information
-  const qrData = JSON.stringify({
-    type: 'gymfriends_user',
-    userId: user.id,
-    name: user.name,
-    timestamp: Date.now(), // Prevents caching issues
-  });
+  // Create QR code data - either group invitation or user info
+  const qrData = groupId
+    ? JSON.stringify({
+        type: 'gymfriends_group_invitation',
+        groupId: groupId,
+        groupName: groupName || 'Group',
+        timestamp: Date.now(),
+      })
+    : JSON.stringify({
+        type: 'gymfriends_user',
+        userId: user.id,
+        name: user.name,
+        timestamp: Date.now(),
+      });
+
+  // Debug logging
+  if (groupId) {
+    console.log('QRCodeDisplayModal: Generating group QR code', { groupId, groupName, qrData });
+  }
 
   return (
     <Modal
@@ -53,13 +69,26 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          {/* User Info */}
+          {/* User/Group Info */}
           <View style={styles.userInfo}>
             <View style={styles.avatarPlaceholder}>
-              <Ionicons name="person" size={40} color="#007AFF" />
+              <Ionicons 
+                name={groupId ? "people" : "person"} 
+                size={40} 
+                color="#007AFF" 
+              />
             </View>
-            <Text style={styles.userName}>{user.name}</Text>
-            <Text style={styles.userEmail}>{user.email}</Text>
+            {groupId ? (
+              <>
+                <Text style={styles.userName}>{groupName || 'Group'}</Text>
+                <Text style={styles.userEmail}>Group Invitation QR Code</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.userName}>{user.name}</Text>
+                <Text style={styles.userEmail}>{user.email}</Text>
+              </>
+            )}
           </View>
 
           {/* QR Code Container */}
@@ -83,9 +112,13 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
             <View style={styles.iconRow}>
               <Ionicons name="scan" size={24} color="#007AFF" />
             </View>
-            <Text style={styles.instructionsTitle}>How to Add Friends</Text>
+            <Text style={styles.instructionsTitle}>
+              {groupId ? 'How to Join Group' : 'How to Add Friends'}
+            </Text>
             <Text style={styles.instructionsText}>
-              Have your friend scan this QR code with their GymFriends app to instantly become friends!
+              {groupId
+                ? 'Have someone scan this QR code with their GymFriends app to instantly join this group!'
+                : 'Have your friend scan this QR code with their GymFriends app to instantly become friends!'}
             </Text>
             
             <View style={styles.tipContainer}>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+// Removed useFocusEffect import - using useEffect instead to reduce API calls
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { User, Gym } from '../types';
@@ -62,6 +63,17 @@ const FriendsScreen: React.FC = () => {
       setRefreshing(false);
     }
   };
+
+  // Refresh data when screen comes into focus
+  // OPTIMIZATION: Only refresh on initial mount, rely on real-time subscriptions for updates
+  // Removed useFocusEffect refresh - real-time subscriptions handle updates automatically
+  useEffect(() => {
+    if (user?.id) {
+      refreshData().catch((error) => {
+        console.error('Error refreshing data:', error);
+      });
+    }
+  }, [user?.id]); // Only refresh when user changes, not on every focus
 
   const handleAddFriend = async () => {
     if (!friendEmail.trim()) {

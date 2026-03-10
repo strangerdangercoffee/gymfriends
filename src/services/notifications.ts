@@ -1,6 +1,8 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { NotificationData } from '../types';
+import { supabase } from './supabase';
+import { notificationPreferencesApi } from './api';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -164,7 +166,7 @@ export class NotificationService {
   }
 
   removeNotificationSubscription(subscription: Notifications.Subscription): void {
-    Notifications.removeNotificationSubscription(subscription);
+    subscription.remove();
   }
 
   // Send push notification to a specific user
@@ -196,6 +198,128 @@ export class NotificationService {
       }
     } catch (error) {
       console.error('Error sending push notification:', error);
+      throw error;
+    }
+  }
+
+  // Save or update push token for a user
+  async savePushToken(userId: string, token: string, platform?: string): Promise<void> {
+    const doUpsert = async (): Promise<boolean> => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user || session.user.id !== userId) {
+        return false; // Session not ready or mismatch — RLS would fail
+      }
+      const { error } = await (supabase as any)
+        .from('user_push_tokens')
+        .upsert({
+          user_id: userId,
+          expo_push_token: token,
+          platform: platform || Platform.OS,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id,expo_push_token',
+        });
+      if (error) throw error;
+      console.log(`Push token saved for user ${userId}`);
+      return true;
+    };
+
+    try {
+      if (await doUpsert()) return;
+      await new Promise((r) => setTimeout(r, 2000));
+      if (await doUpsert()) return;
+    } catch (error: any) {
+      if (error?.code === '42501') {
+        await new Promise((r) => setTimeout(r, 1500));
+        try {
+          await doUpsert();
+          return;
+        } catch (retryError: any) {
+          console.error('Error saving push token (RLS):', retryError);
+          throw retryError;
+        }
+      }
+      console.error('Error saving push token:', error);
+      throw error;
+    }
+  }
+
+  // Check if notification should be sent based on user preferences
+  private shouldSendNotification(
+    notificationType?: string,
+    preferences?: any
+  ): boolean {
+    if (!preferences || !notificationType) return true; // Default to sending
+
+    switch (notificationType) {
+      case 'workout_invitation':
+        return preferences.workoutInvitations ?? true;
+      case 'workout_invitation_response':
+        return preferences.workoutResponses ?? true;
+      case 'workout_bail':
+        return preferences.workoutBails ?? true;
+      case 'workout_reminder':
+        return preferences.workoutReminders ?? true;
+      case 'friend_at_gym':
+        return preferences.friendAtGym ?? true;
+      case 'friend_at_crag':
+        return preferences.friendAtCrag ?? true;
+      case 'group_message':
+        return preferences.groupMessages ?? true;
+      case 'belayer_request':
+        return preferences.belayerRequests ?? true;
+      case 'belayer_response':
+        return preferences.belayerResponses ?? true;
+      case 'friend_trip_announcement':
+        return preferences.friendTripAnnouncements ?? true;
+      default:
+        return true;
+    }
+  }
+
+  // Generic notification sender - sends push notifications to users
+  async sendNotification(
+    userId: string,
+    notification: NotificationData
+  ): Promise<void> {
+    try {
+      // Check user's notification preferences
+      const preferences = await notificationPreferencesApi.getNotificationPreferences(userId);
+      
+      // Determine if we should send based on notification type
+      const shouldSend = this.shouldSendNotification(notification.data?.type, preferences);
+      if (!shouldSend) {
+        console.log(`Notification skipped for user ${userId} due to preferences`);
+        return;
+      }
+
+      // Get user's push token(s)
+      const { data: tokens, error: tokenError } = await (supabase as any)
+        .from('user_push_tokens')
+        .select('expo_push_token')
+        .eq('user_id', userId);
+
+      if (tokenError) {
+        console.error('Error fetching push tokens:', tokenError);
+        throw tokenError;
+      }
+
+      if (!tokens || tokens.length === 0) {
+        console.log(`No push token found for user ${userId}`);
+        return;
+      }
+
+      // Send notification to all user's devices
+      for (const tokenData of tokens) {
+        try {
+          await this.sendPushNotification(tokenData.expo_push_token, notification);
+          console.log(`Push notification sent to user ${userId}`);
+        } catch (error) {
+          console.error(`Error sending push to token ${tokenData.expo_push_token}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error sending notification:', error);
       throw error;
     }
   }

@@ -11,8 +11,8 @@ export const generateSampleWorkouts = (): WorkoutSession[] => {
     id: '1',
     startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 7, 0),
     endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 8, 0),
-    workoutType: 'cardio',
-    title: 'Morning Cardio',
+    workoutType: 'limit',
+    title: 'Morning Limit',
     notes: 'Treadmill and cycling',
     isRecurring: false,
     status: 'planned',
@@ -24,7 +24,8 @@ export const generateSampleWorkouts = (): WorkoutSession[] => {
     id: '2',
     startTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 18, 0),
     endTime: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 19, 30),
-    workoutType: 'strength',
+    workoutType: 'projecting',
+    climbingType: 'any',
     title: 'Upper Body Strength',
     notes: 'Bench press, rows, and accessories',
     isRecurring: true,
@@ -45,7 +46,8 @@ export const generateSampleWorkouts = (): WorkoutSession[] => {
     id: '3',
     startTime: new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 6, 30),
     endTime: new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 7, 30),
-    workoutType: 'yoga',
+    workoutType: 'recovery',
+    climbingType: 'any',
     title: 'Morning Yoga',
     notes: 'Vinyasa flow',
     isRecurring: false,
@@ -61,7 +63,8 @@ export const generateSampleWorkouts = (): WorkoutSession[] => {
     id: '4',
     startTime: new Date(nextWeek.getFullYear(), nextWeek.getMonth(), nextWeek.getDate(), 17, 0),
     endTime: new Date(nextWeek.getFullYear(), nextWeek.getMonth(), nextWeek.getDate(), 18, 0),
-    workoutType: 'running',
+    workoutType: 'cardio',
+    climbingType: 'any',
     title: 'Evening Run',
     notes: '5K training run',
     isRecurring: false,
@@ -88,16 +91,10 @@ export const formatDate = (date: Date): string => {
 };
 
 // Get calendar view based on type and current date
-export const getCalendarView = (type: 'today' | 'week' | 'month', currentDate: Date): CalendarView => {
+export const getCalendarView = (type: 'week' | 'month', currentDate: Date): CalendarView => {
   const now = new Date(currentDate);
   
-  if (type === 'today') {
-    return {
-      type: 'today',
-      startDate: now,
-      endDate: now,
-    };
-  } else if (type === 'week') {
+  if (type === 'week') {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     
@@ -120,10 +117,17 @@ export const getCalendarView = (type: 'today' | 'week' | 'month', currentDate: D
     };
   }
   
+  // Default to week view
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+  
   return {
-    type: 'today',
-    startDate: now,
-    endDate: now,
+    type: 'week',
+    startDate: startOfWeek,
+    endDate: endOfWeek,
   };
 };
 
@@ -134,22 +138,7 @@ export const generateCalendarDays = (
 ): CalendarDay[] => {
   const days: CalendarDay[] = [];
   
-  if (view.type === 'today') {
-    const today = view.startDate;
-    const dayWorkouts = workouts.filter(workout => {
-      const workoutDate = new Date(workout.startTime);
-      return workoutDate.toDateString() === today.toDateString();
-    });
-    
-    days.push({
-      date: today,
-      isToday: true,
-      hasWorkouts: dayWorkouts.length > 0,
-      workouts: dayWorkouts,
-      isWeekend: today.getDay() === 0 || today.getDay() === 6,
-      isPast: false,
-    });
-  } else if (view.type === 'week') {
+  if (view.type === 'week') {
     const startOfWeek = new Date(view.startDate);
     
     for (let i = 0; i < 7; i++) {
@@ -214,16 +203,24 @@ export const getWorkoutStyle = (workout: WorkoutSession) => {
   };
 
   switch (workout.workoutType) {
+    case 'limit':
+      return [baseStyle, { backgroundColor: '#E74C3C' }]; // Max strength / recruitment
+    case 'power':
+      return [baseStyle, { backgroundColor: '#F39C12' }]; // Dynamic, explosive
+    case 'endurance':
+      return [baseStyle, { backgroundColor: '#D35400' }]; // PE + aerobic power
+    case 'technique':
+      return [baseStyle, { backgroundColor: '#3498DB' }]; // Movement, footwork, skills
+    case 'volume':
+      return [baseStyle, { backgroundColor: '#27AE60' }]; // ARC, base building
+    case 'projecting':
+      return [baseStyle, { backgroundColor: '#8E44AD' }]; // Performance, tactics
+    case 'recovery':
+      return [baseStyle, { backgroundColor: '#95A5A6' }]; // Mobility, yoga, prehab
     case 'cardio':
-      return [baseStyle, { backgroundColor: '#FF6B6B' }];
-    case 'strength':
-      return [baseStyle, { backgroundColor: '#4ECDC4' }];
-    case 'yoga':
-      return [baseStyle, { backgroundColor: '#45B7D1' }];
-    case 'running':
-      return [baseStyle, { backgroundColor: '#96CEB4' }];
+      return [baseStyle, { backgroundColor: '#96CEB4' }]; // Aerobic endurance
     default:
-      return [baseStyle, { backgroundColor: '#FFA07A' }];
+      return [baseStyle, { backgroundColor: '#FECA57' }];
   }
 };
 

@@ -11,6 +11,7 @@ export interface User {
     shareSchedule: boolean;
     autoCheckIn: boolean;
   };
+  climbingProfile?: ClimbingProfile; // Optional climbing profile
   createdAt: string;
   updatedAt: string;
 }
@@ -37,9 +38,58 @@ export interface Schedule {
   startTime: string; // ISO timestamp
   endTime: string; // ISO timestamp
   isRecurring: boolean;
-  recurringPattern?: 'daily' | 'weekly' | 'monthly';
+  recurringPattern?: 'daily' | 'weekly' | 'monthly' | 'custom';
   workoutType?: string;
+  title?: string;
+  notes?: string;
   status: 'planned' | 'active' | 'completed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Climbing area (outdoor crag) types
+export interface ClimbingArea {
+  id: string;
+  name: string;
+  slug: string;
+  latitude: number;
+  longitude: number;
+  geofenceRadiusM: number;
+  region?: string;
+  country?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserAreaVisit {
+  id: string;
+  userId: string;
+  areaId: string;
+  firstEnteredAt: string;
+  lastSeenAt: string;
+  leftAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserAreaPlan {
+  id: string;
+  userId: string;
+  areaId: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TripInvitation {
+  id: string;
+  tripId: string;
+  inviteeUserId: string;
+  inviterUserId: string;
+  status: 'invited' | 'accepted' | 'declined';
+  comment?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,11 +118,16 @@ export interface WorkoutHistory {
   startTime: string; // ISO timestamp (from checkedInAt)
   endTime: string; // ISO timestamp (from checkedOutAt)
   duration: number; // Duration in minutes
-  workoutType?: 'cardio' | 'strength' | 'yoga' | 'running' | 'climbing' | 'crossfit' | 'custom';
+  workoutType?: 'limit' | 'power' | 'endurance' | 'technique' | 'volume' | 'projecting' | 'recovery' | 'cardio';
+  climbingType?: 'lead' | 'top_rope' | 'bouldering' | 'any';
   title?: string;
   notes?: string;
   exercises?: WorkoutExercise[];
   presenceId?: string; // Reference to the presence record
+  scheduleId?: string; // Reference to the schedule (null for standalone)
+  isException?: boolean; // True if modified from recurring pattern
+  isRecurring?: boolean; // True if this workout is part of a recurring schedule
+  status: 'planned' | 'completed' | 'cancelled'; // Workout status
   createdAt: string;
   updatedAt: string;
 }
@@ -91,14 +146,28 @@ export interface WorkoutExercise {
 // Navigation types
 export type RootTabParamList = {
   Schedule: undefined;
-  Friends: undefined;
-  Gyms: undefined;
+  Friends: undefined; // Now shows ConnectionsScreen with Friends/Groups tabs
+  Map: undefined;
+  Feed: undefined;
   Profile: undefined;
+};
+
+export type MapStackParamList = {
+  MapMain: undefined;
+  AreaDetail: { areaId: string };
 };
 
 export type ScheduleStackParamList = {
   ScheduleMain: undefined;
   AddSchedule: undefined;
+};
+
+export type GroupsStackParamList = {
+  GroupsMain: undefined;
+  GroupChat: { groupId: string; groupName: string };
+  AreaFeed: undefined;
+  AreasMap: undefined;
+  AreaDetail: { areaId: string };
 };
 
 // Component props types
@@ -158,12 +227,64 @@ export interface CreateScheduleForm {
   startTime: Date;
   endTime: Date;
   isRecurring: boolean;
-  recurringPattern?: 'daily' | 'weekly' | 'monthly';
+  recurringPattern?: 'daily' | 'weekly' | 'monthly' | 'custom';
   workoutType?: string;
+  title?: string;
+  notes?: string;
 }
 
 export interface AddFriendForm {
   email: string;
+}
+
+// Workout Invitation types
+export interface WorkoutInvitation {
+  id: string;
+  inviterId: string;
+  scheduleId: string;
+  title: string;
+  description?: string;
+  gymId: string;
+  startTime: string;
+  endTime: string;
+  isRecurring: boolean;
+  recurringPattern?: 'daily' | 'weekly' | 'monthly';
+  workoutType?: string;
+  status: 'active' | 'cancelled' | 'completed';
+  createdAt: string;
+  updatedAt: string;
+  associatedGroupIds?: string[];
+}
+
+export interface WorkoutInvitationResponse {
+  id: string;
+  invitationId: string;
+  userId: string;
+  response: 'pending' | 'accepted' | 'declined' | 'bailed';
+  bailedAt?: string;
+  bailReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkoutInvitationWithResponses extends WorkoutInvitation {
+  responses: WorkoutInvitationResponse[];
+  inviter: User;
+  gym: Gym;
+}
+
+export interface CreateWorkoutInvitationData {
+  scheduleId: string;
+  title: string;
+  description?: string;
+  gymId: string;
+  startTime: string;
+  endTime: string;
+  isRecurring: boolean;
+  recurringPattern?: 'daily' | 'weekly' | 'monthly';
+  workoutType?: string;
+  invitedUserIds: string[];
+  associatedGroupIds?: string[];
 }
 
 export interface CreateGymForm {
@@ -179,7 +300,8 @@ export interface WorkoutSession {
   id: string;
   startTime: Date;
   endTime: Date;
-  workoutType: 'cardio' | 'strength' | 'yoga' | 'running' | 'custom';
+  workoutType: 'limit' | 'power' | 'endurance' | 'technique' | 'volume' | 'projecting' | 'recovery' | 'cardio';
+  climbingType: 'lead' | 'top_rope' | 'bouldering' | 'any';
   title: string;
   notes?: string;
   isRecurring: boolean;
@@ -237,8 +359,12 @@ export interface AuthContextType {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<void>;
+  deleteAccount: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 export interface LocationContextType {
@@ -247,7 +373,7 @@ export interface LocationContextType {
   isGeofencingActive: boolean;
   startTracking: () => Promise<void>;
   stopTracking: () => void;
-  startGeofencing: (userId: string, followedGyms: Gym[]) => Promise<void>;
+  startGeofencing: (userId: string, followedGyms: Gym[], options?: { userName?: string; followedAreas?: ClimbingArea[]; allClimbingAreas?: ClimbingArea[] }) => Promise<void>;
   stopGeofencing: () => Promise<void>;
   requestPermissions: () => Promise<boolean>;
   hasPermissions: boolean;
@@ -260,9 +386,14 @@ export interface AppContextType {
   friends: User[];
   presence: Presence[];
   workoutHistory: WorkoutHistory[];
+  workoutInvitations: WorkoutInvitationWithResponses[];
+  pendingInvitationsCount: number;
+  followedGyms: Gym[];
   isLoading: boolean;
   refreshData: () => Promise<void>;
-  addSchedule: (schedule: CreateScheduleForm) => Promise<void>;
+  refreshSchedules: () => Promise<void>;
+  refreshWorkoutHistory: () => Promise<void>;
+  addSchedule: (schedule: CreateScheduleForm) => Promise<Schedule>;
   updateSchedule: (id: string, updates: Partial<Schedule>) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
   deleteRecurringSchedule: (userId: string, workoutType: string, recurringPattern: any, startTime: string) => Promise<void>;
@@ -276,5 +407,190 @@ export interface AppContextType {
   getWorkoutHistory: (userId: string, startDate?: Date, endDate?: Date) => Promise<WorkoutHistory[]>;
   updateWorkoutHistory: (id: string, updates: Partial<WorkoutHistory>) => Promise<void>;
   deleteWorkoutHistory: (id: string) => Promise<void>;
+  refreshWorkoutInvitations: () => Promise<void>;
+  createWorkoutInvitation: (scheduleId: string, invitationData: CreateWorkoutInvitationData) => Promise<void>;
+  respondToWorkoutInvitation: (invitationId: string, response: 'accepted' | 'declined') => Promise<void>;
+  bailFromWorkout: (invitationId: string, reason?: string) => Promise<void>;
+  cancelWorkoutInvitation: (invitationId: string) => Promise<void>;
+  getWorkoutInvitationById: (invitationId: string) => Promise<WorkoutInvitationWithResponses | null>;
+  climbingAreas: ClimbingArea[];
+  followedAreas: ClimbingArea[];
+  followArea: (areaId: string) => Promise<void>;
+  unfollowArea: (areaId: string) => Promise<void>;
 }
 
+// Group Chat types
+export interface GroupChat {
+  chatId: string;
+  groupId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  messageId: string;
+  chatId: string;
+  senderUserId: string;
+  senderName?: string; // Populated when fetching with user data
+  senderAvatar?: string; // Populated when fetching with user data
+  messageText: string;
+  messageType: 'text' | 'image' | 'video' | 'workout-share' | 'system';
+  metadata?: {
+    imageUrl?: string;
+    thumbnailUrl?: string;
+    videoUrl?: string;
+    workoutId?: string;
+    workoutTitle?: string;
+    action?: string; // For system messages (e.g., 'belayer_request')
+    userId?: string; // For system messages
+    senderUserId?: string; // For belayer request messages (author user ID)
+    postId?: string; // For belayer request messages
+    postType?: 'belayer_request' | 'rally_pads_request';
+    climbingType?: 'lead' | 'top_rope' | 'bouldering' | 'any';
+    scheduledTime?: string;
+    gymName?: string;
+    cragName?: string;
+    targetRoute?: string;
+    targetGrade?: string;
+  };
+  createdAt: string;
+  editedAt?: string;
+  deletedAt?: string;
+  readBy?: string[]; // Array of user IDs who have read this message
+}
+
+export interface ChatMessageRead {
+  readId: string;
+  messageId: string;
+  userId: string;
+  readAt: string;
+}
+
+// Climbing Profile types
+export interface ClimbingProfile {
+  profileId: string;
+  userId: string;
+  leadClimbing: boolean;
+  leadGradeSystem?: 'yds' | 'french' | 'aus';
+  leadGradeMin?: string;
+  leadGradeMax?: string;
+  topRope: boolean;
+  topRopeGradeSystem?: 'yds' | 'french' | 'aus';
+  topRopeGradeMin?: string;
+  topRopeGradeMax?: string;
+  bouldering: boolean;
+  boulderGradeSystem?: 'v_scale' | 'font';
+  boulderMaxFlash?: string;
+  boulderMaxSend?: string;
+  traditionalClimbing: boolean;
+  traditionalGradeSystem?: 'yds' | 'french' | 'aus';
+  traditionalGradeMin?: string;
+  traditionalGradeMax?: string;
+  openToNewPartners: boolean;
+  preferredGradeRangeMin?: string;
+  preferredGradeRangeMax?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BelayCertification {
+  certificationId: string;
+  userId: string;
+  gymId: string;
+  gymName?: string; // Populated when fetching
+  certificationType: 'top_rope' | 'lead' | 'both';
+  certifiedAt: string;
+  expiresAt?: string;
+  verifiedByGym: boolean;
+}
+
+export interface AreaFeedPost {
+  postId: string;
+  authorUserId: string;
+  authorName?: string; // Populated when fetching
+  authorAvatar?: string; // Populated when fetching
+  gymId?: string;
+  gymName?: string; // Populated when fetching
+  areaId?: string;
+  areaName?: string; // Populated when fetching (climbing area)
+  cragName?: string; // Legacy, prefer areaId/areaName
+  postType: 'belayer_request' | 'rally_pads_request' | 'lost_found' | 'discussion' | 'general' | 'trip_announcement';
+  title: string;
+  content: string;
+  climbingType?: 'lead' | 'top_rope' | 'bouldering' | 'any';
+  targetRoute?: string;
+  targetGrade?: string;
+  scheduledTime?: string; // ISO timestamp, null for "now"
+  urgency: 'now' | 'scheduled';
+  reportCount: number;
+  quarantined: boolean;
+  metadata?: Record<string, any>;
+  responseCount?: number; // Populated when fetching
+  availableResponders?: BelayerRequestResponse[]; // For inviter view
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
+export interface BelayerRequestResponse {
+  responseId: string;
+  postId: string;
+  responderUserId: string;
+  responderName?: string; // Populated when fetching
+  responderAvatar?: string; // Populated when fetching
+  responderProfile?: ClimbingProfile; // For matching info
+  status: 'available' | 'selected' | 'declined' | 'completed';
+  message?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PostReport {
+  reportId: string;
+  postId: string;
+  reporterUserId: string;
+  reason: string;
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  preferenceId: string;
+  userId: string;
+  // Workout notifications
+  workoutInvitations: boolean;
+  workoutResponses: boolean;
+  workoutBails: boolean;
+  workoutReminders: boolean;
+  // Social notifications
+  friendAtGym: boolean;
+  friendAtCrag: boolean;
+  groupMessages: boolean;
+  // Belayer/climbing partner notifications
+  belayerRequests: boolean;
+  belayerResponses: boolean;
+  matchingPartners: boolean;
+  groupBelayerAlerts: boolean;
+  // Feed notifications
+  feedResponses: boolean;
+  feedMentions: boolean;
+  // Trip planning
+  friendTripAnnouncements: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBelayerRequestData {
+  gymId?: string;
+  areaId?: string;
+  cragName?: string; // Legacy
+  postType: 'belayer_request' | 'rally_pads_request';
+  title: string;
+  content: string;
+  climbingType: 'lead' | 'top_rope' | 'bouldering' | 'any';
+  targetRoute?: string;
+  targetGrade?: string;
+  scheduledTime?: string; // ISO timestamp, null for "now"
+  urgency: 'now' | 'scheduled';
+  audienceGroups?: string[]; // Group IDs to post to
+  audienceArea?: 'gym' | 'crag'; // Post to gym/crag feed (optional)
+}

@@ -27,27 +27,28 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
   const { updateWorkoutHistory, deleteWorkoutHistory, gyms } = useApp();
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState('');
-  const [workoutType, setWorkoutType] = useState<WorkoutHistory['workoutType']>('cardio');
+  const [workoutType, setWorkoutType] = useState<WorkoutHistory['workoutType']>('limit');
   const [notes, setNotes] = useState('');
   const [exercises, setExercises] = useState<WorkoutExercise[]>([]);
 
   useEffect(() => {
     if (workout) {
       setTitle(workout.title || '');
-      setWorkoutType(workout.workoutType || 'cardio');
+      setWorkoutType(workout.workoutType || 'limit');
       setNotes(workout.notes || '');
       setExercises(workout.exercises || []);
     }
   }, [workout]);
 
   const workoutTypes = [
-    { key: 'cardio', label: 'Cardio', icon: 'bicycle', color: '#FF6B6B' },
-    { key: 'strength', label: 'Strength', icon: 'barbell', color: '#4ECDC4' },
-    { key: 'yoga', label: 'Yoga', icon: 'flower', color: '#45B7D1' },
-    { key: 'running', label: 'Running', icon: 'walk', color: '#96CEB4' },
-    { key: 'climbing', label: 'Climbing', icon: 'trending-up', color: '#A29BFE' },
-    { key: 'crossfit', label: 'CrossFit', icon: 'fitness', color: '#FD79A8' },
-    { key: 'custom', label: 'Custom', icon: 'ellipsis-horizontal', color: '#FECA57' },
+    { key: 'limit', label: 'Limit', icon: 'barbell', color: '#E74C3C' },              // Max strength / recruitment
+    { key: 'power', label: 'Power', icon: 'flash', color: '#F39C12' },                // Dynamic, explosive
+    { key: 'endurance', label: 'Endurance', icon: 'pulse', color: '#D35400' },        // PE + aerobic power
+    { key: 'technique', label: 'Technique', icon: 'footsteps', color: '#3498DB' },    // Movement, footwork, skills
+    { key: 'volume', label: 'Volume', icon: 'repeat', color: '#27AE60' },            // ARC, base building
+    { key: 'projecting', label: 'Projecting', icon: 'trending-up', color: '#8E44AD' }, // Performance, tactics
+    { key: 'recovery', label: 'Recovery', icon: 'leaf', color: '#95A5A6' },           // Mobility, yoga, prehab
+    { key: 'cardio', label: 'Cardio', icon: 'bicycle', color: '#96CEB4' },           // Aerobic endurance
   ] as const;
 
   const getGymName = () => {

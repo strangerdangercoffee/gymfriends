@@ -9,7 +9,7 @@ import { CalendarView } from '../types';
 
 interface CalendarHeaderProps {
   currentView: CalendarView;
-  onViewChange: (view: 'today' | 'week' | 'month') => void;
+  onViewChange: (view: 'week' | 'month') => void;
   onDateChange: (date: Date) => void;
   onAddWorkout: () => void;
 }
@@ -23,14 +23,7 @@ const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   const formatDateRange = () => {
     const { startDate, endDate, type } = currentView;
     
-    if (type === 'today') {
-      return startDate.toLocaleDateString([], { 
-        weekday: 'long', 
-        month: 'long', 
-        day: 'numeric',
-        year: 'numeric'
-      });
-    } else if (type === 'week') {
+    if (type === 'week') {
       const start = startDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
       const end = endDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
       return `${start} - ${end}`;
@@ -45,9 +38,7 @@ const CalendarHeader: React.FC<CalendarHeaderProps> = ({
     const { startDate, type } = currentView;
     const newDate = new Date(startDate);
     
-    if (type === 'today') {
-      newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
-    } else if (type === 'week') {
+    if (type === 'week') {
       newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
     } else if (type === 'month') {
       newDate.setMonth(newDate.getMonth() + (direction === 'next' ? 1 : -1));
@@ -86,7 +77,7 @@ const CalendarHeader: React.FC<CalendarHeaderProps> = ({
       {/* Bottom Row: View Selector and Add Button */}
       <View style={styles.bottomRow}>
         <View style={styles.viewSelector}>
-          {(['today', 'week', 'month'] as const).map((view) => (
+          {(['week', 'month'] as const).map((view) => (
             <TouchableOpacity
               key={view}
               style={[

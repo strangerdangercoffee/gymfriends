@@ -6,7 +6,8 @@ export interface FriendInvitation {
   inviterId: string;
   inviterName: string;
   inviterEmail: string;
-  inviteeEmail: string;
+  inviteeEmail: string | null;
+  inviteePhone: string | null;
   status: 'pending' | 'accepted' | 'declined' | 'expired';
   createdAt: string;
   expiresAt: string;
@@ -17,7 +18,8 @@ export interface CreateInvitationData {
   inviterId: string;
   inviterName: string;
   inviterEmail: string;
-  inviteeEmail: string;
+  inviteeEmail?: string;
+  inviteePhone?: string;
 }
 
 export class InvitationService {
@@ -31,27 +33,63 @@ export class InvitationService {
   }
 
   async createInvitation(invitationData: CreateInvitationData): Promise<FriendInvitation> {
-    // Check if user already exists
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', invitationData.inviteeEmail)
-      .single();
+    // Validate that either email or phone is provided
+    if (!invitationData.inviteeEmail && !invitationData.inviteePhone) {
+      throw new Error('Either email or phone number must be provided');
+    }
 
-    if (existingUser) {
-      throw new Error('User already exists with this email');
+    // Check if user already exists (by email or phone)
+    if (invitationData.inviteeEmail) {
+      const { data: existingUserByEmail } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', invitationData.inviteeEmail)
+        .single();
+
+      if (existingUserByEmail) {
+        throw new Error('User already exists with this email');
+      }
+    }
+
+    if (invitationData.inviteePhone) {
+      // Note: Phone number lookup will be implemented when users table has a phone column
+      // For now, we'll skip this check and allow phone invitations
+      // TODO: Add phone column to users table and enable this check
+      // const { data: existingUserByPhone } = await supabase
+      //   .from('users')
+      //   .select('id')
+      //   .eq('phone', invitationData.inviteePhone)
+      //   .single();
+      // if (existingUserByPhone) {
+      //   throw new Error('User already exists with this phone number');
+      // }
     }
 
     // Check if there's already a pending invitation
-    const { data: existingInvitation } = await supabase
-      .from('friend_invitations')
-      .select('id')
-      .eq('invitee_email', invitationData.inviteeEmail)
-      .eq('status', 'pending')
-      .single();
+    let existingInvitation = null;
+    if (invitationData.inviteeEmail) {
+      const { data } = await supabase
+        .from('friend_invitations')
+        .select('id')
+        .eq('invitee_email', invitationData.inviteeEmail)
+        .eq('status', 'pending')
+        .single();
+      existingInvitation = data;
+    }
+
+    if (!existingInvitation && invitationData.inviteePhone) {
+      const { data } = await supabase
+        .from('friend_invitations')
+        .select('id')
+        .eq('invitee_phone', invitationData.inviteePhone)
+        .eq('status', 'pending')
+        .single();
+      existingInvitation = data;
+    }
 
     if (existingInvitation) {
-      throw new Error('Invitation already sent to this email');
+      const contactType = invitationData.inviteeEmail ? 'email' : 'phone number';
+      throw new Error(`Invitation already sent to this ${contactType}`);
     }
 
     // Create invitation
@@ -64,7 +102,8 @@ export class InvitationService {
         inviter_id: invitationData.inviterId,
         inviter_name: invitationData.inviterName,
         inviter_email: invitationData.inviterEmail,
-        invitee_email: invitationData.inviteeEmail,
+        invitee_email: invitationData.inviteeEmail || null,
+        invitee_phone: invitationData.inviteePhone || null,
         status: 'pending',
         expires_at: expiresAt.toISOString(),
       }])
@@ -79,14 +118,22 @@ export class InvitationService {
     return data;
   }
 
-  async getPendingInvitations(inviteeEmail: string): Promise<FriendInvitation[]> {
-    const { data, error } = await supabase
+  async getPendingInvitations(inviteeEmail?: string, inviteePhone?: string): Promise<FriendInvitation[]> {
+    let query = supabase
       .from('friend_invitations')
       .select('*')
-      .eq('invitee_email', inviteeEmail)
       .eq('status', 'pending')
-      .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false });
+      .gt('expires_at', new Date().toISOString());
+
+    if (inviteeEmail) {
+      query = query.eq('invitee_email', inviteeEmail);
+    } else if (inviteePhone) {
+      query = query.eq('invitee_phone', inviteePhone);
+    } else {
+      throw new Error('Either inviteeEmail or inviteePhone must be provided');
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) throw error;
     return data || [];
@@ -200,17 +247,37 @@ export class InvitationService {
   }
 
   private async sendInvitationNotification(invitation: FriendInvitation): Promise<void> {
-    // In a real app, you would send an email or push notification here
+    // In a real app, you would send an email or SMS notification here
     // For now, we'll just log it
-    console.log(`Invitation sent to ${invitation.invitee_email} from ${invitation.inviter_name}`);
+    if (invitation.invitee_email) {
+      console.log(`Invitation sent to ${invitation.invitee_email} from ${invitation.inviter_name}`);
+      // You could integrate with email services like SendGrid, AWS SES, etc.
+    } else if (invitation.invitee_phone) {
+      console.log(`Invitation sent to ${invitation.invitee_phone} from ${invitation.inviter_name}`);
+      // You could integrate with SMS services like Twilio, AWS SNS, etc.
+      // Example: await this.sendSMS(invitation.invitee_phone, invitation);
+    }
     
-    // You could integrate with email services like SendGrid, AWS SES, etc.
     // or use Expo's notification system for in-app notifications
+  }
+
+  // Placeholder for SMS sending - integrate with Twilio or similar service
+  private async sendSMS(phoneNumber: string, invitation: FriendInvitation): Promise<void> {
+    // TODO: Integrate with SMS service (e.g., Twilio)
+    // Example implementation:
+    // const message = `${invitation.inviter_name} invited you to join Gym Friends! Sign up at [app link]`;
+    // await twilioClient.messages.create({
+    //   body: message,
+    //   to: phoneNumber,
+    //   from: process.env.TWILIO_PHONE_NUMBER,
+    // });
+    console.log(`SMS invitation would be sent to ${phoneNumber}`);
   }
 
   private async sendInvitationAcceptedNotification(invitation: FriendInvitation): Promise<void> {
     // Send notification to the inviter that their invitation was accepted
-    console.log(`Invitation accepted by ${invitation.invitee_email}`);
+    const contact = invitation.invitee_email || invitation.invitee_phone || 'unknown';
+    console.log(`Invitation accepted by ${contact}`);
     
     // You could send a push notification here
   }
