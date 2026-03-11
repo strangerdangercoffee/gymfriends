@@ -49,6 +49,8 @@ const transformUserFromDB = (dbUser: any): User => ({
   id: dbUser.id,
   name: dbUser.name,
   email: dbUser.email,
+  phone: dbUser.phone ?? undefined,
+  phoneVerifiedAt: dbUser.phone_verified_at ?? undefined,
   avatar: dbUser.avatar,
   friends: [], // Will be populated from junction table
   followedGyms: [], // Will be populated from junction table
@@ -68,6 +70,8 @@ const transformUserToDB = (user: Partial<User>): any => {
     id: user.id,
     name: user.name,
     email: user.email,
+    phone: user.phone != null ? String(user.phone).replace(/\D/g, '') : null,
+    phone_verified_at: user.phoneVerifiedAt ?? null,
     avatar: user.avatar || null,
     privacy_settings: user.privacySettings ? {
       share_location: user.privacySettings.shareLocation ?? true,
@@ -79,7 +83,7 @@ const transformUserToDB = (user: Partial<User>): any => {
       auto_check_in: false,
     },
   };
-  
+
   // Only include fields that exist in the database schema
   // Remove any undefined values to avoid issues
   Object.keys(dbData).forEach(key => {
@@ -87,7 +91,7 @@ const transformUserToDB = (user: Partial<User>): any => {
       delete dbData[key];
     }
   });
-  
+
   return dbData;
 };
 
@@ -228,14 +232,17 @@ export const userApi = {
     if (existingUser && !checkError) {
       // User exists, update it with the provided data
       const dbData = transformUserToDB(userData);
+      const updatePayload: any = {
+        name: dbData.name,
+        email: dbData.email,
+        privacy_settings: dbData.privacy_settings,
+        updated_at: new Date().toISOString(),
+      };
+      if (dbData.phone !== undefined) updatePayload.phone = dbData.phone;
+      if (dbData.phone_verified_at !== undefined) updatePayload.phone_verified_at = dbData.phone_verified_at;
       const { data, error } = await (supabase as any)
         .from('users')
-        .update({
-          name: dbData.name,
-          email: dbData.email,
-          privacy_settings: dbData.privacy_settings,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', userData.id)
         .select()
         .single();
@@ -274,7 +281,7 @@ export const userApi = {
       .from('user_friendships')
       .select(`
         users!user_friendships_friend_id_fkey (
-          id, name, email, avatar, privacy_settings, created_at, updated_at
+          id, name, email, phone, phone_verified_at, avatar, privacy_settings, created_at, updated_at
         )
       `)
       .eq('user_id', userId);
@@ -283,19 +290,23 @@ export const userApi = {
     return (data || []).map((item: any) => transformUserFromDB(item.users));
   },
 
-  async addFriend(userId: string, friendEmail: string): Promise<void> {
-    // First, find the friend by email
+  async addFriend(userId: string, friendPhone: string): Promise<void> {
+    // Normalize phone to digits-only for lookup (same format as stored in users.phone)
+    const normalized = friendPhone.replace(/\D/g, '');
+    if (!normalized.length) {
+      throw new Error('Invalid phone number');
+    }
+
     const { data: friend, error: friendError } = await supabase
       .from('users')
       .select('id')
-      .eq('email', friendEmail)
-      .single();
+      .eq('phone', normalized)
+      .maybeSingle();
 
-    if (friendError || !friend) {
+    if (friendError || !friend?.id) {
       throw new Error('Friend not found');
     }
 
-    // Add mutual friendship in junction table
     const { error } = await (supabase as any)
       .from('user_friendships')
       .insert([

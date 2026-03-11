@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   Modal,
   TouchableOpacity,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { invitationService, CreateInvitationData } from '../services/invitations';
@@ -19,45 +18,53 @@ interface FriendInvitationModalProps {
   visible: boolean;
   onClose: () => void;
   onInvitationSent: () => void;
+  /** Pre-fill phone when opening from "add friend" not found flow */
+  initialPhone?: string;
 }
 
 const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
   visible,
   onClose,
   onInvitationSent,
+  initialPhone = '',
 }) => {
   const { user } = useAuth();
-  const [invitationType, setInvitationType] = useState<'email' | 'phone'>('email');
-  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (visible && initialPhone) {
+      setPhone(initialPhone);
+    } else if (!visible) {
+      setPhone('');
+    }
+  }, [visible, initialPhone]);
+
+  const isValidPhone = (value: string): boolean => {
+    const digitsOnly = value.replace(/\D/g, '');
+    return digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
+
+  const formatPhoneNumber = (value: string): string => {
+    const digitsOnly = value.replace(/\D/g, '');
+    if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
+      return digitsOnly.substring(1);
+    }
+    return digitsOnly;
+  };
 
   const handleSendInvitation = async () => {
     if (!user) {
       Alert.alert('Error', 'You must be logged in to send invitations');
       return;
     }
-
-    if (invitationType === 'email') {
-      if (!email.trim()) {
-        Alert.alert('Error', 'Please enter an email address');
-        return;
-      }
-
-      if (!isValidEmail(email.trim())) {
-        Alert.alert('Error', 'Please enter a valid email address');
-        return;
-      }
-    } else {
-      if (!phone.trim()) {
-        Alert.alert('Error', 'Please enter a phone number');
-        return;
-      }
-
-      if (!isValidPhone(phone.trim())) {
-        Alert.alert('Error', 'Please enter a valid phone number');
-        return;
-      }
+    if (!phone.trim()) {
+      Alert.alert('Error', 'Please enter a phone number');
+      return;
+    }
+    if (!isValidPhone(phone.trim())) {
+      Alert.alert('Error', 'Please enter a valid phone number (10–15 digits)');
+      return;
     }
 
     setIsLoading(true);
@@ -66,23 +73,17 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
         inviterId: user.id,
         inviterName: user.name,
         inviterEmail: user.email,
-        ...(invitationType === 'email' 
-          ? { inviteeEmail: email.trim() }
-          : { inviteePhone: formatPhoneNumber(phone.trim()) }
-        ),
+        inviteePhone: formatPhoneNumber(phone.trim()),
       };
-
       await invitationService.createInvitation(invitationData);
-      
-      const contact = invitationType === 'email' ? email.trim() : phone.trim();
+
       Alert.alert(
         'Invitation Sent!',
-        `We've sent an invitation to ${contact}. They'll be added as your friend when they sign up!`,
+        `We've sent an invitation to ${phone.trim()}. They'll be added as your friend when they sign up!`,
         [
           {
             text: 'OK',
             onPress: () => {
-              setEmail('');
               setPhone('');
               onClose();
               onInvitationSent();
@@ -91,26 +92,16 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
         ]
       );
     } catch (error: any) {
-      if (error.message.includes('already exists')) {
+      if (error.message?.includes('already has an account')) {
         Alert.alert(
-          'User Already Exists',
-          'This user already has an account. Try adding them as a friend directly.',
-          [
-            { text: 'OK' },
-            {
-              text: 'Add as Friend',
-              onPress: () => {
-                // This would trigger the regular add friend flow
-                onClose();
-              },
-            },
-          ]
+          'Already Has Account',
+          'This person already has an account. Add them as a friend from the Friends tab.',
+          [{ text: 'OK' }]
         );
-      } else if (error.message.includes('already sent')) {
-        const contactType = invitationType === 'email' ? 'email address' : 'phone number';
+      } else if (error.message?.includes('already sent')) {
         Alert.alert(
           'Invitation Already Sent',
-          `You have already sent an invitation to this ${contactType}.`,
+          'You have already sent an invitation to this phone number.',
           [{ text: 'OK' }]
         );
       } else {
@@ -121,30 +112,7 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
     }
   };
 
-  const isValidEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
-
-  const isValidPhone = (phone: string): boolean => {
-    // Remove all non-digit characters for validation
-    const digitsOnly = phone.replace(/\D/g, '');
-    // Valid if it has 10-15 digits (supports international formats)
-    return digitsOnly.length >= 10 && digitsOnly.length <= 15;
-  };
-
-  const formatPhoneNumber = (phone: string): string => {
-    // Remove all non-digit characters
-    const digitsOnly = phone.replace(/\D/g, '');
-    // If it starts with 1 (US country code), remove it
-    if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
-      return digitsOnly.substring(1);
-    }
-    return digitsOnly;
-  };
-
   const handleClose = () => {
-    setEmail('');
     setPhone('');
     onClose();
   };
@@ -171,80 +139,16 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
                 Invite a friend to join Gym Friends! They'll be automatically added as your friend when they sign up.
               </Text>
 
-              <View style={styles.invitationTypeSelector}>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    invitationType === 'email' && styles.typeButtonActive,
-                  ]}
-                  onPress={() => {
-                    setInvitationType('email');
-                    setPhone('');
-                  }}
-                >
-                  <Ionicons
-                    name="mail"
-                    size={20}
-                    color={invitationType === 'email' ? '#007AFF' : '#8E8E93'}
-                  />
-                  <Text
-                    style={[
-                      styles.typeButtonText,
-                      invitationType === 'email' && styles.typeButtonTextActive,
-                    ]}
-                  >
-                    Email
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    invitationType === 'phone' && styles.typeButtonActive,
-                  ]}
-                  onPress={() => {
-                    setInvitationType('phone');
-                    setEmail('');
-                  }}
-                >
-                  <Ionicons
-                    name="chatbubble"
-                    size={20}
-                    color={invitationType === 'phone' ? '#007AFF' : '#8E8E93'}
-                  />
-                  <Text
-                    style={[
-                      styles.typeButtonText,
-                      invitationType === 'phone' && styles.typeButtonTextActive,
-                    ]}
-                  >
-                    Text
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {invitationType === 'email' ? (
-                <Input
-                  label="Friend's Email"
-                  placeholder="Enter their email address"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={styles.contactInput}
-                />
-              ) : (
-                <Input
-                  label="Friend's Phone Number"
-                  placeholder="Enter their phone number"
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={styles.contactInput}
-                />
-              )}
+              <Input
+                label="Friend's Phone Number"
+                placeholder="Enter their phone number"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.contactInput}
+              />
 
               <View style={styles.features}>
                 <Text style={styles.featuresTitle}>What they'll get:</Text>
@@ -278,10 +182,7 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
                 title={isLoading ? 'Sending...' : 'Send Invitation'}
                 onPress={handleSendInvitation}
                 loading={isLoading}
-                disabled={
-                  (invitationType === 'email' ? !email.trim() : !phone.trim()) ||
-                  isLoading
-                }
+                disabled={!phone.trim() || isLoading}
                 style={styles.sendButton}
               />
             </View>
@@ -333,36 +234,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 20,
   },
-  invitationTypeSelector: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  typeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E5E7',
-    backgroundColor: '#F9F9F9',
-    gap: 8,
-  },
-  typeButtonActive: {
-    borderColor: '#007AFF',
-    backgroundColor: '#E3F2FD',
-  },
-  typeButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#8E8E93',
-  },
-  typeButtonTextActive: {
-    color: '#007AFF',
-  },
   contactInput: {
     marginBottom: 20,
   },
@@ -400,4 +271,3 @@ const styles = StyleSheet.create({
 });
 
 export default FriendInvitationModal;
-

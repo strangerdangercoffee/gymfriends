@@ -27,6 +27,7 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import FriendInvitationModal from '../components/FriendInvitationModal';
+import OnboardingInviteFriends from '../components/OnboardingInviteFriends';
 import QRCodeDisplayModal from '../components/QRCodeDisplayModal';
 import QRCodeScannerModal from '../components/QRCodeScannerModal';
 import CreateGroupModal from '../components/CreateGroupModal';
@@ -62,8 +63,10 @@ const ConnectionsScreen: React.FC = () => {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showQRDisplay, setShowQRDisplay] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const [friendEmail, setFriendEmail] = useState('');
+  const [friendPhone, setFriendPhone] = useState('');
   const [addingFriend, setAddingFriend] = useState(false);
+  const [inviteModalInitialPhone, setInviteModalInitialPhone] = useState('');
+  const [showInviteFriendsModal, setShowInviteFriendsModal] = useState(false);
   
   // Groups state
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,22 +130,23 @@ const ConnectionsScreen: React.FC = () => {
 
   // Friends handlers
   const handleAddFriend = async () => {
-    if (!friendEmail.trim()) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!friendPhone.trim()) {
+      Alert.alert('Error', 'Please enter a valid phone number');
       return;
     }
 
     setAddingFriend(true);
     try {
-      await addFriend(friendEmail.trim());
-      setFriendEmail('');
+      await addFriend(friendPhone.trim());
+      setFriendPhone('');
       setShowAddFriend(false);
       Alert.alert('Success', 'Friend added successfully!');
     } catch (error: any) {
       if (error.message.includes('not found')) {
+        setInviteModalInitialPhone(friendPhone.trim());
         Alert.alert(
           'User Not Found',
-          'No user found with this email address. Would you like to invite them to join Gym Friends?',
+          'No user found with this phone number. Would you like to invite them to join Gym Friends?',
           [
             { text: 'Cancel', style: 'cancel' },
             {
@@ -407,6 +411,12 @@ const ConnectionsScreen: React.FC = () => {
               friends.length > 0 ? (
                 <View style={styles.header}>
                   <Button
+                    title="Invite Friends"
+                    variant="outline"
+                    onPress={() => setShowInviteFriendsModal(true)}
+                    style={styles.addButton}
+                  />
+                  <Button
                     title="Add Friend"
                     onPress={() => setShowAddFriend(true)}
                     style={styles.addButton}
@@ -477,16 +487,16 @@ const ConnectionsScreen: React.FC = () => {
           </View>
           <View style={styles.modalContent}>
             <Input
-              placeholder="Enter friend's email"
-              value={friendEmail}
-              onChangeText={setFriendEmail}
-              keyboardType="email-address"
+              placeholder="Enter friend's phone number"
+              value={friendPhone}
+              onChangeText={setFriendPhone}
+              keyboardType="phone-pad"
               autoCapitalize="none"
             />
             <Button
               title={addingFriend ? 'Adding...' : 'Add Friend'}
               onPress={handleAddFriend}
-              disabled={addingFriend || !friendEmail.trim()}
+              disabled={addingFriend || !friendPhone.trim()}
               style={styles.modalButton}
             />
           </View>
@@ -575,12 +585,40 @@ const ConnectionsScreen: React.FC = () => {
 
       <FriendInvitationModal
         visible={showInviteModal}
-        onClose={() => setShowInviteModal(false)}
+        onClose={() => {
+          setShowInviteModal(false);
+          setInviteModalInitialPhone('');
+        }}
         onInvitationSent={() => {
           setShowInviteModal(false);
-          setFriendEmail('');
+          setInviteModalInitialPhone('');
+          handleRefresh();
         }}
+        initialPhone={inviteModalInitialPhone}
       />
+
+      <Modal
+        visible={showInviteFriendsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowInviteFriendsModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E5E5E7' }}>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: '#000' }}>Invite friends</Text>
+            <TouchableOpacity onPress={() => setShowInviteFriendsModal(false)} hitSlop={12}>
+              <Ionicons name="close" size={28} color="#000" />
+            </TouchableOpacity>
+          </View>
+          <OnboardingInviteFriends
+            onComplete={() => {
+              setShowInviteFriendsModal(false);
+              handleRefresh();
+            }}
+            onSkip={() => setShowInviteFriendsModal(false)}
+          />
+        </View>
+      </Modal>
 
       <QRCodeDisplayModal
         visible={showQRDisplay}

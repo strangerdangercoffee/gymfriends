@@ -22,6 +22,7 @@ import AreaFeedScreen from '../screens/AreaFeedScreen';
 import AreaDetailScreen from '../screens/AreaDetailScreen';
 import AreasMapScreen from '../screens/AreasMapScreen';
 import GlobeMapScreen from '../screens/GlobeMapScreen';
+import GymDetailScreen from '../screens/GymDetailScreen';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const ScheduleStack = createStackNavigator<ScheduleStackParamList>();
@@ -105,6 +106,11 @@ const GroupsStackNavigator: React.FC = () => {
         component={AreaDetailScreen}
         options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
       />
+      <GroupsStack.Screen 
+        name="GymDetail" 
+        component={GymDetailScreen}
+        options={({ route }) => ({ title: route.params?.gymId ? 'Gym' : 'Gym' })}
+      />
     </GroupsStack.Navigator>
   );
 };
@@ -134,6 +140,11 @@ const MapStackNavigator: React.FC = () => {
         name="AreaDetail" 
         component={AreaDetailScreen}
         options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
+      />
+      <MapStack.Screen 
+        name="GymDetail" 
+        component={GymDetailScreen}
+        options={({ route }) => ({ title: route.params?.gymId ? 'Gym' : 'Gym' })}
       />
     </MapStack.Navigator>
   );

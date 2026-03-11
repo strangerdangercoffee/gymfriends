@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // Removed useFocusEffect import - using useEffect instead to reduce API calls
@@ -17,6 +18,7 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import FriendInvitationModal from '../components/FriendInvitationModal';
+import OnboardingInviteFriends from '../components/OnboardingInviteFriends';
 import QRCodeDisplayModal from '../components/QRCodeDisplayModal';
 import QRCodeScannerModal from '../components/QRCodeScannerModal';
 
@@ -28,8 +30,10 @@ const FriendsScreen: React.FC = () => {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showQRDisplay, setShowQRDisplay] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const [friendEmail, setFriendEmail] = useState('');
+  const [friendPhone, setFriendPhone] = useState('');
   const [addingFriend, setAddingFriend] = useState(false);
+  const [inviteModalInitialPhone, setInviteModalInitialPhone] = useState('');
+  const [showInviteFriendsModal, setShowInviteFriendsModal] = useState(false);
 
   // Get friends who are currently at gyms
   const friendsAtGym = friends.filter(friend => {
@@ -76,23 +80,23 @@ const FriendsScreen: React.FC = () => {
   }, [user?.id]); // Only refresh when user changes, not on every focus
 
   const handleAddFriend = async () => {
-    if (!friendEmail.trim()) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!friendPhone.trim()) {
+      Alert.alert('Error', 'Please enter a valid phone number');
       return;
     }
 
     setAddingFriend(true);
     try {
-      await addFriend(friendEmail.trim());
-      setFriendEmail('');
+      await addFriend(friendPhone.trim());
+      setFriendPhone('');
       setShowAddFriend(false);
       Alert.alert('Success', 'Friend added successfully!');
     } catch (error: any) {
       if (error.message.includes('not found')) {
-        // User doesn't exist, show invitation option
+        setInviteModalInitialPhone(friendPhone.trim());
         Alert.alert(
           'User Not Found',
-          'No user found with this email address. Would you like to invite them to join Gym Friends?',
+          'No user found with this phone number. Would you like to invite them to join Gym Friends?',
           [
             { text: 'Cancel', style: 'cancel' },
             {
@@ -105,7 +109,7 @@ const FriendsScreen: React.FC = () => {
           ]
         );
       } else {
-        Alert.alert('Error', error.message || 'Failed to add friend. Please check the email address.');
+        Alert.alert('Error', error.message || 'Failed to add friend. Please check the phone number.');
       }
     } finally {
       setAddingFriend(false);
@@ -186,11 +190,11 @@ const FriendsScreen: React.FC = () => {
     <Card style={styles.addFriendCard}>
       <Text style={styles.addFriendTitle}>Add Friend</Text>
       <Input
-        label="Email Address"
-        placeholder="Enter friend's email"
-        value={friendEmail}
-        onChangeText={setFriendEmail}
-        keyboardType="email-address"
+        label="Phone Number"
+        placeholder="Enter friend's phone number"
+        value={friendPhone}
+        onChangeText={setFriendPhone}
+        keyboardType="phone-pad"
         autoCapitalize="none"
         style={styles.addFriendInput}
       />
@@ -200,7 +204,7 @@ const FriendsScreen: React.FC = () => {
           variant="outline"
           onPress={() => {
             setShowAddFriend(false);
-            setFriendEmail('');
+            setFriendPhone('');
           }}
           style={styles.cancelButton}
         />
@@ -261,9 +265,9 @@ const FriendsScreen: React.FC = () => {
 
       <View style={styles.headerActions}>
         <Button
-          title="Invite Friend"
+          title="Invite Friends"
           variant="outline"
-          onPress={() => setShowInviteModal(true)}
+          onPress={() => setShowInviteFriendsModal(true)}
           style={styles.headerButton}
         />
         <Button
@@ -279,12 +283,40 @@ const FriendsScreen: React.FC = () => {
       {/* Modals */}
       <FriendInvitationModal
         visible={showInviteModal}
-        onClose={() => setShowInviteModal(false)}
+        onClose={() => {
+          setShowInviteModal(false);
+          setInviteModalInitialPhone('');
+        }}
         onInvitationSent={() => {
           setShowInviteModal(false);
-          // Optionally refresh data or show success message
+          setInviteModalInitialPhone('');
+          refreshData();
         }}
+        initialPhone={inviteModalInitialPhone}
       />
+
+      <Modal
+        visible={showInviteFriendsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowInviteFriendsModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E5E5E7' }}>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: '#000' }}>Invite friends</Text>
+            <TouchableOpacity onPress={() => setShowInviteFriendsModal(false)} hitSlop={12}>
+              <Ionicons name="close" size={28} color="#000" />
+            </TouchableOpacity>
+          </View>
+          <OnboardingInviteFriends
+            onComplete={() => {
+              setShowInviteFriendsModal(false);
+              refreshData();
+            }}
+            onSkip={() => setShowInviteFriendsModal(false)}
+          />
+        </View>
+      </Modal>
 
       <QRCodeDisplayModal
         visible={showQRDisplay}

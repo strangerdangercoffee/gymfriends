@@ -3,6 +3,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  phone?: string;
+  phoneVerifiedAt?: string; // ISO timestamp when phone was verified via SMS
   avatar?: string;
   friends: string[]; // array of user IDs
   followedGyms: string[]; // array of gym IDs
@@ -155,6 +157,7 @@ export type RootTabParamList = {
 export type MapStackParamList = {
   MapMain: undefined;
   AreaDetail: { areaId: string };
+  GymDetail: { gymId: string };
 };
 
 export type ScheduleStackParamList = {
@@ -168,6 +171,7 @@ export type GroupsStackParamList = {
   AreaFeed: undefined;
   AreasMap: undefined;
   AreaDetail: { areaId: string };
+  GymDetail: { gymId: string };
 };
 
 // Component props types
@@ -397,7 +401,7 @@ export interface AppContextType {
   updateSchedule: (id: string, updates: Partial<Schedule>) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
   deleteRecurringSchedule: (userId: string, workoutType: string, recurringPattern: any, startTime: string) => Promise<void>;
-  addFriend: (email: string) => Promise<void>;
+  addFriend: (phone: string) => Promise<void>;
   addFriendInstant: (friendId: string) => Promise<void>;
   removeFriend: (userId: string) => Promise<void>;
   followGym: (gymId: string) => Promise<void>;

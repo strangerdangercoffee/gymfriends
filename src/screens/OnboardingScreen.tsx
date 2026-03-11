@@ -12,14 +12,16 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import OnboardingSlide from '../components/OnboardingSlide';
+import OnboardingPhoneStep from '../components/OnboardingPhoneStep';
 import OnboardingGymSelection from '../components/OnboardingGymSelection';
 import OnboardingCheckIn from '../components/OnboardingCheckIn';
 import OnboardingClimbingProfile from '../components/OnboardingClimbingProfile';
+import OnboardingInviteFriends from '../components/OnboardingInviteFriends';
 import Button from '../components/Button';
 
 const { width } = Dimensions.get('window');
 
-type SlideType = 'slide' | 'gym-selection' | 'check-in' | 'climbing-profile';
+type SlideType = 'slide' | 'phone' | 'gym-selection' | 'check-in' | 'climbing-profile' | 'invite-friends';
 
 interface Slide {
   type: 'slide';
@@ -36,7 +38,7 @@ const SLIDES: Slide[] = [
     title: 'Connect with Friends',
     description: 'Add friends in the community page to see when they\'re at the gym',
     features: [
-      'Add friends via email or text',
+      'Add friends by phone or scan their QR code',
       'Scan QR codes to connect instantly',
       'See friends\' gym activity in real-time',
     ],
@@ -76,19 +78,26 @@ const OnboardingScreen: React.FC = () => {
   const [hasCompletedCheckIn, setHasCompletedCheckIn] = useState(false);
   const [hasCompletedClimbingProfile, setHasCompletedClimbingProfile] = useState(false);
 
-  const totalSteps = SLIDES.length + 3; // 3 slides + 3 interactive steps
+  const totalSteps = SLIDES.length + 5; // 3 slides + phone, gym, check-in, climbing-profile, invite-friends
   const currentStep = currentIndex + 1;
 
   const getCurrentStepType = (): SlideType => {
     if (currentIndex < SLIDES.length) {
       return 'slide';
-    } else if (currentIndex === SLIDES.length) {
+    }
+    if (currentIndex === SLIDES.length) {
+      return 'phone';
+    }
+    if (currentIndex === SLIDES.length + 1) {
       return 'gym-selection';
-    } else if (currentIndex === SLIDES.length + 1) {
+    }
+    if (currentIndex === SLIDES.length + 2) {
       return 'check-in';
-    } else {
+    }
+    if (currentIndex === SLIDES.length + 3) {
       return 'climbing-profile';
     }
+    return 'invite-friends';
   };
 
   const handleNext = () => {
@@ -140,6 +149,22 @@ const OnboardingScreen: React.FC = () => {
 
   const handleClimbingProfileComplete = () => {
     setHasCompletedClimbingProfile(true);
+    handleNext();
+  };
+
+  const handlePhoneComplete = () => {
+    handleNext();
+  };
+
+  const handlePhoneSkip = () => {
+    handleNext();
+  };
+
+  const handleInviteFriendsComplete = () => {
+    handleComplete();
+  };
+
+  const handleInviteFriendsSkip = () => {
     handleComplete();
   };
 
@@ -155,6 +180,14 @@ const OnboardingScreen: React.FC = () => {
             title={slide.title}
             description={slide.description}
             features={slide.features}
+          />
+        );
+
+      case 'phone':
+        return (
+          <OnboardingPhoneStep
+            onComplete={handlePhoneComplete}
+            onSkip={handlePhoneSkip}
           />
         );
 
@@ -177,7 +210,15 @@ const OnboardingScreen: React.FC = () => {
         return (
           <OnboardingClimbingProfile
             onComplete={handleClimbingProfileComplete}
-            onSkip={handleComplete}
+            onSkip={handleNext}
+          />
+        );
+
+      case 'invite-friends':
+        return (
+          <OnboardingInviteFriends
+            onComplete={handleInviteFriendsComplete}
+            onSkip={handleInviteFriendsSkip}
           />
         );
 

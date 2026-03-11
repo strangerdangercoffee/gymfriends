@@ -23,6 +23,7 @@ import LocationPermissionModal from '../components/LocationPermissionModal';
 import ClimbingProfileModal from '../components/ClimbingProfileModal';
 import { Gym, ClimbingProfile, BelayCertification, NotificationPreferences, UserAreaPlan, TripInvitation } from '../types';
 import { climbingProfileApi, notificationPreferencesApi, tripInvitationsApi } from '../services/api';
+import { invitationService } from '../services/invitations';
 
 const ProfileScreen: React.FC = () => {
   const { user, signOut, updateProfile, deleteAccount } = useAuth();
@@ -39,6 +40,7 @@ const ProfileScreen: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
+  const [phone, setPhone] = useState(user?.phone || '');
   const [shareLocation, setShareLocation] = useState(user?.privacySettings?.shareLocation ?? true);
   const [shareSchedule, setShareSchedule] = useState(user?.privacySettings?.shareSchedule ?? true);
   const [autoCheckIn, setAutoCheckIn] = useState(user?.privacySettings?.autoCheckIn ?? false);
@@ -80,15 +82,32 @@ const ProfileScreen: React.FC = () => {
   const handleSaveProfile = async () => {
     if (!user) return;
 
+    const normalizedPhone = phone.trim() ? phone.replace(/\D/g, '') : undefined;
+    if (normalizedPhone && normalizedPhone.length < 10) {
+      Alert.alert('Error', 'Please enter a valid phone number (at least 10 digits)');
+      return;
+    }
+
     try {
       await updateProfile({
         name: name.trim(),
+        phone: normalizedPhone || undefined,
         privacySettings: {
           shareLocation,
           shareSchedule,
           autoCheckIn,
         },
       });
+      if (normalizedPhone) {
+        const pending = await invitationService.getPendingInvitations(normalizedPhone);
+        for (const inv of pending) {
+          try {
+            await invitationService.acceptInvitation(inv.id, user.id);
+          } catch {
+            // ignore per-invitation errors
+          }
+        }
+      }
       setIsEditing(false);
       Alert.alert('Success', 'Profile updated successfully');
     } catch (error) {
@@ -99,6 +118,7 @@ const ProfileScreen: React.FC = () => {
   const handleCancelEdit = () => {
     setName(user?.name || '');
     setEmail(user?.email || '');
+    setPhone(user?.phone || '');
     setShareLocation(user?.privacySettings?.shareLocation ?? true);
     setShareSchedule(user?.privacySettings?.shareSchedule ?? true);
     setAutoCheckIn(user?.privacySettings?.autoCheckIn ?? false);
@@ -313,6 +333,15 @@ const ProfileScreen: React.FC = () => {
             editable={false}
             style={styles.input}
           />
+          <Input
+            label="Phone number"
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Enter your phone number"
+            keyboardType="phone-pad"
+            autoCapitalize="none"
+            style={styles.input}
+          />
           <View style={styles.formActions}>
             <Button
               title="Cancel"
@@ -337,6 +366,9 @@ const ProfileScreen: React.FC = () => {
           <View style={styles.userInfo}>
             <Text style={styles.userName}>{user?.name || 'Unknown User'}</Text>
             <Text style={styles.userEmail}>{user?.email || 'No email'}</Text>
+            {user?.phone ? (
+              <Text style={styles.userEmail}>{user.phone}</Text>
+            ) : null}
           </View>
         </View>
       )}
@@ -607,7 +639,17 @@ const ProfileScreen: React.FC = () => {
     }
   };
 
-  // Load climbing profile on mount
+  useEffect(() => {
+    if (user) {
+      setName(user.name || '');
+      setEmail(user.email || '');
+      setPhone(user.phone || '');
+      setShareLocation(user.privacySettings?.shareLocation ?? true);
+      setShareSchedule(user.privacySettings?.shareSchedule ?? true);
+      setAutoCheckIn(user.privacySettings?.autoCheckIn ?? false);
+    }
+  }, [user?.id, user?.name, user?.email, user?.phone, user?.privacySettings]);
+
   // Load notification preferences on mount
   useEffect(() => {
     const loadPreferences = async () => {

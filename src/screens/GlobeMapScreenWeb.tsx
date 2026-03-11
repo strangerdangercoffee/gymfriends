@@ -10,7 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { userAreaVisitsApi } from '../services/api';
-import { ClimbingArea } from '../types';
+import { ClimbingArea, Gym } from '../types';
 import { GroupsStackParamList, MapStackParamList } from '../types';
 import {
   getAllBorderPolylines,
@@ -36,49 +36,74 @@ function latLngToVec3(lat: number, lng: number, radius: number): THREE.Vector3 {
 }
 const AUTO_ROTATE_SPEED = 0.3;
 
-// Points data item: area + lat/lng + hasFriends for color
+type MapMode = 'areas' | 'gyms';
+
 interface PointItem {
-  area: ClimbingArea;
   lat: number;
   lng: number;
   hasFriends: boolean;
+  area?: ClimbingArea;
+  gym?: Gym;
 }
 
 const GlobeMapScreenWeb: React.FC = () => {
   const navigation = useNavigation<AreasMapNav>();
   const { user } = useAuth();
-  const { climbingAreas, friends } = useApp();
-  const [presence, setPresence] = useState<{ areaId: string; userId: string }[]>([]);
+  const { climbingAreas, gyms, friends, presence: gymPresence } = useApp();
+  const [mapMode, setMapMode] = useState<MapMode>('areas');
+  const [areaPresence, setAreaPresence] = useState<{ areaId: string; userId: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedArea, setSelectedArea] = useState<ClimbingArea | null>(null);
+  const [selectedGym, setSelectedGym] = useState<Gym | null>(null);
   const globeRef = useRef<any>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const friendIds = useMemo(() => new Set(friends.map((f) => f.id)), [friends]);
+
   const friendsByArea = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const p of presence) {
+    for (const p of areaPresence) {
       const list = map.get(p.areaId) ?? [];
       if (!list.includes(p.userId)) list.push(p.userId);
       map.set(p.areaId, list);
     }
     return map;
-  }, [presence]);
+  }, [areaPresence]);
+
+  const friendsByGym = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const p of gymPresence) {
+      if (!p.isActive || !friendIds.has(p.userId)) continue;
+      const list = map.get(p.gymId) ?? [];
+      if (!list.includes(p.userId)) list.push(p.userId);
+      map.set(p.gymId, list);
+    }
+    return map;
+  }, [gymPresence, friendIds]);
 
   const friendName = (userId: string): string => {
     const f = friends.find((x) => x.id === userId);
     return f?.name ?? 'Friend';
   };
 
-  const pointsData: PointItem[] = useMemo(
-    () =>
-      climbingAreas.map((area) => ({
-        area,
+  const pointsData: PointItem[] = useMemo(() => {
+    if (mapMode === 'areas') {
+      return climbingAreas.map((area) => ({
         lat: area.latitude,
         lng: area.longitude,
         hasFriends: (friendsByArea.get(area.id) ?? []).length > 0,
-      })),
-    [climbingAreas, friendsByArea]
-  );
+        area,
+      }));
+    }
+    return gyms
+      .filter((g) => typeof g.latitude === 'number' && typeof g.longitude === 'number')
+      .map((gym) => ({
+        lat: gym.latitude,
+        lng: gym.longitude,
+        hasFriends: (friendsByGym.get(gym.id) ?? []).length > 0,
+        gym,
+      }));
+  }, [mapMode, climbingAreas, gyms, friendsByArea, friendsByGym]);
 
   const pathsData = useMemo(() => {
     const country = getAllBorderPolylines();
@@ -100,10 +125,10 @@ const GlobeMapScreenWeb: React.FC = () => {
       : userAreaVisitsApi.getFriendsPresenceForUser(user.id);
     api
       .then((data) => {
-        if (!cancelled) setPresence(data);
+        if (!cancelled) setAreaPresence(data);
       })
       .catch(() => {
-        if (!cancelled) setPresence([]);
+        if (!cancelled) setAreaPresence([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -115,7 +140,14 @@ const GlobeMapScreenWeb: React.FC = () => {
 
   const handleViewArea = (areaId: string) => {
     setSelectedArea(null);
-    navigation.navigate('AreaDetail', { areaId });
+    setSelectedGym(null);
+    (navigation as any).navigate('AreaDetail', { areaId });
+  };
+
+  const handleViewGym = (gymId: string) => {
+    setSelectedArea(null);
+    setSelectedGym(null);
+    (navigation as any).navigate('GymDetail', { gymId });
   };
 
   useEffect(() => {
@@ -124,6 +156,14 @@ const GlobeMapScreenWeb: React.FC = () => {
 
     const controls = globe.controls();
     if (!controls) return;
+
+    // Allow zooming in much closer so gyms in the same city stay distinct
+    if (typeof controls.minDistance !== 'undefined') {
+      controls.minDistance = 1.15; // globe radius ~1 → camera can get to ~0.15 from surface
+    }
+    if (typeof controls.maxDistance !== 'undefined') {
+      controls.maxDistance = 400; // keep default or generous max
+    }
 
     const startAutoRotate = () => {
       controls.autoRotate = true;
@@ -175,6 +215,10 @@ const GlobeMapScreenWeb: React.FC = () => {
   const friendIdsForArea = selectedArea
     ? (friendsByArea.get(selectedArea.id) ?? [])
     : [];
+  const friendIdsForGym = selectedGym
+    ? (friendsByGym.get(selectedGym.id) ?? [])
+    : [];
+  const modalVisible = selectedArea !== null || selectedGym !== null;
 
   if (loading) {
     return (
@@ -196,17 +240,48 @@ const GlobeMapScreenWeb: React.FC = () => {
           ←
         </button>
         <div style={styles.headerCenter}>
-          <div style={styles.headerTitle}>CLIMBING AREAS</div>
-          <div style={styles.headerSub}>{climbingAreas.length} areas worldwide</div>
+          <div style={styles.headerTitle}>
+            {mapMode === 'areas' ? 'CLIMBING AREAS' : 'GYMS'}
+          </div>
+          <div style={styles.headerSub}>
+            {mapMode === 'areas'
+              ? `${climbingAreas.length} areas worldwide`
+              : `${gyms.filter((g) => typeof g.latitude === 'number' && typeof g.longitude === 'number').length} gyms worldwide`}
+          </div>
         </div>
         <div style={styles.headerSpacer} />
       </header>
+
+      <div style={styles.tabRow}>
+        <button
+          type="button"
+          style={[styles.tab, mapMode === 'areas' && styles.tabActive]}
+          onClick={() => {
+            setMapMode('areas');
+            setSelectedArea(null);
+            setSelectedGym(null);
+          }}
+        >
+          Climbing Areas
+        </button>
+        <button
+          type="button"
+          style={[styles.tab, mapMode === 'gyms' && styles.tabActive]}
+          onClick={() => {
+            setMapMode('gyms');
+            setSelectedArea(null);
+            setSelectedGym(null);
+          }}
+        >
+          Gyms
+        </button>
+      </div>
 
       <div style={styles.globeContainer}>
         <Globe
           ref={globeRef}
           width={typeof window !== 'undefined' ? window.innerWidth : 800}
-          height={typeof window !== 'undefined' ? window.innerHeight - 180 : 500}
+          height={typeof window !== 'undefined' ? window.innerHeight - 220 : 500}
           backgroundColor="#020c18"
           showGlobe={true}
           showAtmosphere={true}
@@ -216,11 +291,14 @@ const GlobeMapScreenWeb: React.FC = () => {
           pointsData={pointsData}
           pointLat={(d: PointItem) => d.lat}
           pointLng={(d: PointItem) => d.lng}
-          pointColor={(d: PointItem) => (d.hasFriends ? '#34C759' : '#4A9EFF')}
+          pointColor={(d: PointItem) => (d.hasFriends ? '#00FF41' : '#03A062')}
           pointAltitude={0.01}
           pointRadius={0.4}
           pointsMerge={false}
-          onPointClick={(point: PointItem) => setSelectedArea(point.area)}
+          onPointClick={(point: PointItem) => {
+            if (point.area) setSelectedArea(point.area);
+            if (point.gym) setSelectedGym(point.gym);
+          }}
           pathsData={pathsData}
           pathPoints={(d: { points: [number, number][] }) => d.points}
           pathPointLat={(arr: [number, number]) => arr[1]}
@@ -232,21 +310,26 @@ const GlobeMapScreenWeb: React.FC = () => {
 
         <div style={styles.legend}>
           <div style={styles.legendItem}>
-            <span style={[styles.legendDot, { backgroundColor: '#4A9EFF' }]} />
-            <span style={styles.legendText}>Climbing area</span>
+            <span style={[styles.legendDot, { backgroundColor: '#03A062' }]} />
+            <span style={styles.legendText}>
+              {mapMode === 'areas' ? 'Climbing area' : 'Gym'}
+            </span>
           </div>
           <div style={styles.legendItem}>
-            <span style={[styles.legendDot, { backgroundColor: '#34C759' }]} />
+            <span style={[styles.legendDot, { backgroundColor: '#00FF41' }]} />
             <span style={styles.legendText}>Friends here</span>
           </div>
         </div>
         <div style={styles.hint}>Drag to rotate · Scroll to zoom · Auto-rotates when idle</div>
       </div>
 
-      {selectedArea && (
+      {modalVisible && (
         <div
           style={styles.modalOverlay}
-          onClick={() => setSelectedArea(null)}
+          onClick={() => {
+            setSelectedArea(null);
+            setSelectedGym(null);
+          }}
           role="presentation"
         >
           <div
@@ -254,42 +337,84 @@ const GlobeMapScreenWeb: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Area details"
+            aria-label={selectedArea ? 'Area details' : 'Gym details'}
           >
-            <div style={styles.modalHandle} />
-            <div style={styles.modalTitle} title={selectedArea.name}>
-              {selectedArea.name}
-            </div>
-            <div style={styles.modalLocation}>
-              {[selectedArea.region, selectedArea.country].filter(Boolean).join(', ')}
-            </div>
-            {friendIdsForArea.length > 0 ? (
-              <div style={styles.friendsBadge}>
-                <span style={styles.friendsBadgeText}>
-                  {friendIdsForArea.length === 1
-                    ? `${friendName(friendIdsForArea[0])} is here`
-                    : `${friendIdsForArea.map(friendName).join(', ')} are here`}
-                </span>
-              </div>
-            ) : (
-              <div style={styles.noFriends}>No friends at this area right now</div>
+            {selectedArea && (
+              <>
+                <div style={styles.modalHandle} />
+                <div style={styles.modalTitle} title={selectedArea.name}>
+                  {selectedArea.name}
+                </div>
+                <div style={styles.modalLocation}>
+                  {[selectedArea.region, selectedArea.country].filter(Boolean).join(', ')}
+                </div>
+                {friendIdsForArea.length > 0 ? (
+                  <div style={styles.friendsBadge}>
+                    <span style={styles.friendsBadgeText}>
+                      {friendIdsForArea.length === 1
+                        ? `${friendName(friendIdsForArea[0])} is here`
+                        : `${friendIdsForArea.map(friendName).join(', ')} are here`}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={styles.noFriends}>No friends at this area right now</div>
+                )}
+                <div style={styles.modalActions}>
+                  <button
+                    type="button"
+                    style={styles.viewButton}
+                    onClick={() => handleViewArea(selectedArea.id)}
+                  >
+                    View Area →
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.cancelButton}
+                    onClick={() => setSelectedArea(null)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
             )}
-            <div style={styles.modalActions}>
-              <button
-                type="button"
-                style={styles.viewButton}
-                onClick={() => handleViewArea(selectedArea.id)}
-              >
-                View Area →
-              </button>
-              <button
-                type="button"
-                style={styles.cancelButton}
-                onClick={() => setSelectedArea(null)}
-              >
-                Close
-              </button>
-            </div>
+            {selectedGym && (
+              <>
+                <div style={styles.modalHandle} />
+                <div style={styles.modalTitle} title={selectedGym.name}>
+                  {selectedGym.name}
+                </div>
+                <div style={styles.modalLocation}>
+                  {selectedGym.address || 'Gym'}
+                </div>
+                {friendIdsForGym.length > 0 ? (
+                  <div style={styles.friendsBadge}>
+                    <span style={styles.friendsBadgeText}>
+                      {friendIdsForGym.length === 1
+                        ? `${friendName(friendIdsForGym[0])} is here`
+                        : `${friendIdsForGym.map(friendName).join(', ')} are here`}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={styles.noFriends}>No friends at this gym right now</div>
+                )}
+                <div style={styles.modalActions}>
+                  <button
+                    type="button"
+                    style={styles.viewButton}
+                    onClick={() => handleViewGym(selectedGym.id)}
+                  >
+                    View Gym →
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.cancelButton}
+                    onClick={() => setSelectedGym(null)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -311,12 +436,15 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     padding: '16px',
     paddingTop: 56,
-    borderBottom: '1px solid rgba(74,158,255,0.15)',
+    borderBottom: '1px solid rgba(3, 160, 98, 0.25)',
+    backgroundColor: '#020c18',
+    position: 'relative',
+    zIndex: 10,
   },
   backButton: {
     background: 'none',
     border: 'none',
-    color: '#4A9EFF',
+    color: '#00FF41',
     fontSize: 22,
     cursor: 'pointer',
     padding: 4,
@@ -332,7 +460,7 @@ const styles: Record<string, React.CSSProperties> = {
   headerTitle: {
     fontSize: 13,
     fontWeight: 700,
-    color: '#4A9EFF',
+    color: '#00FF41',
     letterSpacing: 3,
   },
   headerSub: {
@@ -341,6 +469,33 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 2,
     letterSpacing: 1,
   },
+  tabRow: {
+    display: 'flex',
+    flexDirection: 'row',
+    padding: '8px 16px',
+    gap: 8,
+    borderBottom: '1px solid rgba(3, 160, 98, 0.25)',
+    backgroundColor: 'transparent',
+    position: 'relative',
+    zIndex: 10,
+  },
+  tab: {
+    flex: 1,
+    padding: '10px 16px',
+    textAlign: 'center',
+    borderRadius: 8,
+    border: '1px solid rgba(3, 160, 98, 0.4)',
+    background: 'transparent',
+    color: 'rgba(3, 160, 98, 0.9)',
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  tabActive: {
+    background: 'rgba(0, 255, 65, 0.12)',
+    border: '1px solid #00FF41',
+    color: '#00FF41',
+  },
   globeContainer: {
     flex: 1,
     display: 'flex',
@@ -348,6 +503,8 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
+    position: 'relative',
+    zIndex: 0,
   },
   legend: {
     display: 'flex',

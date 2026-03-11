@@ -4,7 +4,6 @@ import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../services/supabase';
 import { userApi } from '../services/api';
-import { invitationService } from '../services/invitations';
 import { notificationService } from '../services/notifications';
 import { storageService } from '../services/storage';
 import { User, AuthContextType } from '../types';
@@ -248,15 +247,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           }
           throw createError;
         }
-        
-        try {
-          const pendingInvitations = await invitationService.getPendingInvitations(authUser.email || '');
-          for (const invitation of pendingInvitations) {
-            await invitationService.acceptInvitation(invitation.id, authUser.id);
-          }
-        } catch (error) {
-          console.error('Error processing pending invitations:', error);
-        }
+        // Pending invitations are matched when the user adds their phone (onboarding or profile)
       }
       
       const userData = await userApi.getCurrentUserMinimal(authUser.id);
@@ -351,20 +342,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         } catch (loadError) {
           console.log('Failed to load user after signup, will be loaded on next login');
         }
-        
-        // Check for pending invitations and accept them
-        try {
-          const currentUser = await userApi.getCurrentUser();
-          if (currentUser) {
-            const pendingInvitations = await invitationService.getPendingInvitations(email);
-            for (const invitation of pendingInvitations) {
-              await invitationService.acceptInvitation(invitation.id, data.user.id);
-            }
-          }
-        } catch (error) {
-          console.error('Error processing pending invitations:', error);
-          // Don't fail signup if invitation processing fails
-        }
+        // Pending invitations are matched when the user adds their phone (onboarding or profile)
       }
     } catch (error: any) {
       console.error('Error signing up:', error);

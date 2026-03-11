@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { userAreaVisitsApi } from '../services/api';
-import { ClimbingArea } from '../types';
+import { ClimbingArea, Gym } from '../types';
 import { GroupsStackParamList, MapStackParamList } from '../types';
 import { getAllPolylines } from '../data/worldBorders';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -39,7 +39,7 @@ const GLOBE_RADIUS = 1.5;
 const AUTO_ROTATE_SPEED = 0.0015;
 const IDLE_TIMEOUT_MS = 2500;
 const CAMERA_DISTANCE_DEFAULT = 4.5;
-const CAMERA_DISTANCE_MIN = 2.5;
+const CAMERA_DISTANCE_MIN = 1.65; // allow zoom in close (globe radius 1.5 → ~0.15 from surface)
 const CAMERA_DISTANCE_MAX = 10;
 const OVERLAY_UPDATE_EVERY_N_FRAMES = 1; // update overlay every frame for responsive drag/zoom
 // Layout size of the globe view (square)
@@ -78,19 +78,25 @@ function projectToScreen(
   };
 }
 
-interface PinData {
-  area: ClimbingArea;
+type MapMode = 'areas' | 'gyms';
+
+interface PinItem {
+  id: string;
   position: THREE.Vector3;
   hasFriends: boolean;
+  area?: ClimbingArea;
+  gym?: Gym;
 }
 
 const GlobeMapScreen: React.FC = () => {
   const navigation = useNavigation<AreasMapNav>();
   const { user } = useAuth();
-  const { climbingAreas, friends } = useApp();
-  const [presence, setPresence] = useState<{ areaId: string; userId: string }[]>([]);
+  const { climbingAreas, gyms, friends, presence: gymPresence } = useApp();
+  const [mapMode, setMapMode] = useState<MapMode>('areas');
+  const [areaPresence, setAreaPresence] = useState<{ areaId: string; userId: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedArea, setSelectedArea] = useState<ClimbingArea | null>(null);
+  const [selectedGym, setSelectedGym] = useState<Gym | null>(null);
   const [overlayTick, setOverlayTick] = useState(0);
   const [glReady, setGlReady] = useState(false);
 
@@ -124,48 +130,88 @@ const GlobeMapScreen: React.FC = () => {
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pinchEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Pin data computed from climbing areas + presence
+  const friendIds = useMemo(() => new Set(friends.map((f) => f.id)), [friends]);
+
   const friendsByArea = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const p of presence) {
+    for (const p of areaPresence) {
       const list = map.get(p.areaId) ?? [];
       if (!list.includes(p.userId)) list.push(p.userId);
       map.set(p.areaId, list);
     }
     return map;
-  }, [presence]);
+  }, [areaPresence]);
+
+  const friendsByGym = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const p of gymPresence) {
+      if (!p.isActive || !friendIds.has(p.userId)) continue;
+      const list = map.get(p.gymId) ?? [];
+      if (!list.includes(p.userId)) list.push(p.userId);
+      map.set(p.gymId, list);
+    }
+    return map;
+  }, [gymPresence, friendIds]);
 
   const friendName = (userId: string): string => {
     const f = friends.find((x) => x.id === userId);
     return f?.name ?? 'Friend';
   };
 
-  const pinData = useMemo<PinData[]>(() => {
-    return climbingAreas.map((area) => ({
-      area,
-      position: latLngToVec3(area.latitude, area.longitude, GLOBE_RADIUS),
-      hasFriends: (friendsByArea.get(area.id) ?? []).length > 0,
-    }));
-  }, [climbingAreas, friendsByArea]);
+  const pinData = useMemo<PinItem[]>(() => {
+    if (mapMode === 'areas') {
+      return climbingAreas.map((area) => ({
+        id: area.id,
+        position: latLngToVec3(area.latitude, area.longitude, GLOBE_RADIUS),
+        hasFriends: (friendsByArea.get(area.id) ?? []).length > 0,
+        area,
+      }));
+    }
+    return gyms
+      .filter((g) => typeof g.latitude === 'number' && typeof g.longitude === 'number')
+      .map((gym) => ({
+        id: gym.id,
+        position: latLngToVec3(gym.latitude, gym.longitude, GLOBE_RADIUS),
+        hasFriends: (friendsByGym.get(gym.id) ?? []).length > 0,
+        gym,
+      }));
+  }, [mapMode, climbingAreas, gyms, friendsByArea, friendsByGym]);
 
-  // Ref so the animation loop (created once in onContextCreate) always sees current pin data
-  const pinDataRef = useRef<PinData[]>([]);
+  const pinDataRef = useRef<PinItem[]>([]);
   pinDataRef.current = pinData;
 
   useEffect(() => {
-    if (!user?.id) { setLoading(false); return; }
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     userAreaVisitsApi
       .getFriendsPresenceForUser(user.id)
-      .then((data) => { if (!cancelled) setPresence(data); })
-      .catch(() => { if (!cancelled) setPresence([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .then((data) => {
+        if (!cancelled) setAreaPresence(data);
+      })
+      .catch(() => {
+        if (!cancelled) setAreaPresence([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   const handleViewArea = (areaId: string) => {
     setSelectedArea(null);
-    navigation.navigate('AreaDetail', { areaId });
+    setSelectedGym(null);
+    (navigation as any).navigate('AreaDetail', { areaId });
+  };
+
+  const handleViewGym = (gymId: string) => {
+    setSelectedArea(null);
+    setSelectedGym(null);
+    (navigation as any).navigate('GymDetail', { gymId });
   };
 
   // Build the Three.js scene
@@ -185,7 +231,7 @@ const GlobeMapScreen: React.FC = () => {
     const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
     camera.position.set(0, 0, 4.5);
     cameraRef.current = camera;
-
+    /*
     // Stars background
     const starGeometry = new THREE.BufferGeometry();
     const starCount = 1200;
@@ -196,12 +242,12 @@ const GlobeMapScreen: React.FC = () => {
     starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
     const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.7 });
     scene.add(new THREE.Points(starGeometry, starMaterial));
-
+    */
     // Globe group (for rotation)
     const globeGroup = new THREE.Group();
     globeGroupRef.current = globeGroup;
     scene.add(globeGroup);
-
+    /*
     // Ocean sphere
     const globeGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
     const globeMat = new THREE.MeshPhongMaterial({
@@ -236,6 +282,7 @@ const GlobeMapScreen: React.FC = () => {
       opacity: 0.18,
     });
     globeGroup.add(new THREE.Mesh(wireGeo, wireMat));
+    */
 
     // Graticule and borders: built as 3D segment data (coarser = fewer segments = smoother drag)
     const graticuleRadius = GLOBE_RADIUS * 1.003;
@@ -364,10 +411,10 @@ const GlobeMapScreen: React.FC = () => {
           }
 
           const positions: Record<string, { x: number; y: number; visible: boolean }> = {};
-          for (const { area, position } of pinDataRef.current) {
+          for (const { id, position } of pinDataRef.current) {
             w1.copy(position).applyEuler(rot);
             const proj = projectToScreen(w1, cam, bufW, bufH);
-            positions[area.id] = {
+            positions[id] = {
               x: proj.x * scaleX - OVERLAY_SVG_PADDING,
               y: proj.y * scaleY - OVERLAY_SVG_PADDING,
               visible: proj.visible,
@@ -454,6 +501,8 @@ const GlobeMapScreen: React.FC = () => {
   const composedGesture = Gesture.Simultaneous(panGesture, pinchGesture);
 
   const friendIdsForArea = selectedArea ? (friendsByArea.get(selectedArea.id) ?? []) : [];
+  const friendIdsForGym = selectedGym ? (friendsByGym.get(selectedGym.id) ?? []) : [];
+  const modalVisible = selectedArea !== null || selectedGym !== null;
 
   if (loading) {
     return (
@@ -470,16 +519,50 @@ const GlobeMapScreen: React.FC = () => {
       <View style={styles.header}>
         {navigation.canGoBack() ? (
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={22} color="#4A9EFF" />
+            <Ionicons name="arrow-back" size={22} color="#00FF41" />
           </TouchableOpacity>
         ) : (
           <View style={styles.headerSpacer} />
         )}
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>CLIMBING AREAS</Text>
-          <Text style={styles.headerSub}>{climbingAreas.length} areas worldwide</Text>
+          <Text style={styles.headerTitle}>
+            {mapMode === 'areas' ? 'CLIMBING AREAS' : 'GYMS'}
+          </Text>
+          <Text style={styles.headerSub}>
+            {mapMode === 'areas'
+              ? `${climbingAreas.length} areas worldwide`
+              : `${gyms.filter((g) => typeof g.latitude === 'number' && typeof g.longitude === 'number').length} gyms worldwide`}
+          </Text>
         </View>
         <View style={styles.headerSpacer} />
+      </View>
+
+      {/* Tab: Climbing Areas | Gyms */}
+      <View style={styles.tabRow}>
+        <TouchableOpacity
+          style={[styles.tab, mapMode === 'areas' && styles.tabActive]}
+          onPress={() => {
+            setMapMode('areas');
+            setSelectedArea(null);
+            setSelectedGym(null);
+          }}
+        >
+          <Text style={[styles.tabText, mapMode === 'areas' && styles.tabTextActive]}>
+            Climbing Areas
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, mapMode === 'gyms' && styles.tabActive]}
+          onPress={() => {
+            setMapMode('gyms');
+            setSelectedArea(null);
+            setSelectedGym(null);
+          }}
+        >
+          <Text style={[styles.tabText, mapMode === 'gyms' && styles.tabTextActive]}>
+            Gyms
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Globe — graticule, borders, and pins drawn as overlay; drag to rotate, pinch to zoom */}
@@ -504,27 +587,40 @@ const GlobeMapScreen: React.FC = () => {
                   >
                     <Path
                       d={data.pathD}
-                      stroke="rgba(42,107,160,0.35)"
+                      stroke="rgba(18, 205, 43, 0.35)"
                       strokeWidth={1}
                       fill="none"
                     />
                   </Svg>
-                  {pinData.map(({ area, hasFriends }) => {
-                    const pos = data.positions[area.id];
+                  {pinData.map(({ id, hasFriends, area, gym }) => {
+                    const pos = data.positions[id];
                     if (!pos || !pos.visible) return null;
+                    const pinSize = hasFriends ? 10 : 8;
+                    const pinRadius = pinSize / 2;
                     return (
                       <TouchableOpacity
-                        key={area.id}
+                        key={id}
                         style={[
                           styles.pin,
                           {
-                            left: pos.x - 7,
-                            top: pos.y - 7,
-                            backgroundColor: hasFriends ? '#34C759' : '#4A9EFF',
-                            shadowColor: hasFriends ? '#34C759' : '#4A9EFF',
+                            width: pinSize,
+                            height: pinSize,
+                            borderRadius: pinRadius,
+                            left: pos.x - pinRadius,
+                            top: pos.y - pinRadius,
+                            backgroundColor: hasFriends ? '#00FF41' : '#03A062',
+                            shadowColor: hasFriends ? '#00FF41' : '#03A062',
+                            ...(hasFriends && {
+                              shadowOpacity: 1,
+                              shadowRadius: 12,
+                              elevation: 10,
+                            }),
                           },
                         ]}
-                        onPress={() => setSelectedArea(area)}
+                        onPress={() => {
+                          if (area) setSelectedArea(area);
+                          if (gym) setSelectedGym(gym);
+                        }}
                         activeOpacity={0.7}
                       />
                     );
@@ -538,11 +634,13 @@ const GlobeMapScreen: React.FC = () => {
         {/* Legend */}
         <View style={styles.legend}>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#4A9EFF' }]} />
-            <Text style={styles.legendText}>Climbing area</Text>
+            <View style={[styles.legendDot, { backgroundColor: '#03A062' }]} />
+            <Text style={styles.legendText}>
+              {mapMode === 'areas' ? 'Climbing area' : 'Gym'}
+            </Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#34C759' }]} />
+            <View style={[styles.legendDot, { backgroundColor: '#00FF41' }]} />
             <Text style={styles.legendText}>Friends here</Text>
           </View>
         </View>
@@ -551,14 +649,23 @@ const GlobeMapScreen: React.FC = () => {
         <Text style={styles.hint}>Drag to rotate · Pinch to zoom · Auto-rotates when idle</Text>
       </View>
 
-      {/* Area detail modal */}
+      {/* Detail modal: area or gym */}
       <Modal
-        visible={selectedArea !== null}
+        visible={modalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setSelectedArea(null)}
+        onRequestClose={() => {
+          setSelectedArea(null);
+          setSelectedGym(null);
+        }}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setSelectedArea(null)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            setSelectedArea(null);
+            setSelectedGym(null);
+          }}
+        >
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             {selectedArea && (
               <>
@@ -598,6 +705,44 @@ const GlobeMapScreen: React.FC = () => {
                 </View>
               </>
             )}
+            {selectedGym && (
+              <>
+                <View style={styles.modalHandle} />
+                <Text style={styles.modalTitle} numberOfLines={1}>
+                  {selectedGym.name}
+                </Text>
+                <Text style={styles.modalLocation} numberOfLines={2}>
+                  {selectedGym.address || 'Gym'}
+                </Text>
+                {friendIdsForGym.length > 0 ? (
+                  <View style={styles.friendsBadge}>
+                    <Ionicons name="people" size={14} color="#34C759" />
+                    <Text style={styles.friendsBadgeText}>
+                      {friendIdsForGym.length === 1
+                        ? `${friendName(friendIdsForGym[0])} is here`
+                        : `${friendIdsForGym.map(friendName).join(', ')} are here`}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.noFriends}>No friends at this gym right now</Text>
+                )}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.viewButton}
+                    onPress={() => handleViewGym(selectedGym.id)}
+                  >
+                    <Text style={styles.viewButtonText}>View Gym</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setSelectedGym(null)}
+                  >
+                    <Text style={styles.cancelButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -617,7 +762,10 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 56 : 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(74,158,255,0.15)',
+    borderBottomColor: 'rgba(3, 160, 98, 0.25)',
+    backgroundColor: '#020c18',
+    zIndex: 10,
+    elevation: 10,
   },
   backButton: {
     padding: 4,
@@ -630,10 +778,44 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
   },
+  tabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(3, 160, 98, 0.25)',
+    backgroundColor: 'transparent',
+    zIndex: 10,
+    elevation: 10,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(3, 160, 98, 0.4)',
+  },
+  tabActive: {
+    backgroundColor: 'rgba(0, 255, 65, 0.12)',
+    borderWidth: 1,
+    borderColor: '#00FF41',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(3, 160, 98, 0.9)',
+  },
+  tabTextActive: {
+    color: '#00FF41',
+  },
   headerTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#4A9EFF',
+    color: '#00FF41',
     letterSpacing: 3,
   },
   headerSub: {
@@ -646,6 +828,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 0,
   },
   glWrap: {
     width: SCREEN_W,
@@ -661,7 +844,7 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    borderWidth: 2,
+    borderWidth: 0,
     borderColor: '#fff',
     shadowOpacity: 0.9,
     shadowRadius: 6,

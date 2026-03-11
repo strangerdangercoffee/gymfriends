@@ -413,11 +413,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   };
 
-  const addFriend = async (email: string): Promise<void> => {
+  const addFriend = async (phone: string): Promise<void> => {
     if (!user) throw new Error('No user logged in');
 
     try {
-      await userApi.addFriend(user.id, email);
+      await userApi.addFriend(user.id, phone);
       await refreshFriends();
     } catch (error) {
       console.error('Error adding friend:', error);
