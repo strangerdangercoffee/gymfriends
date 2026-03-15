@@ -22,6 +22,7 @@ import { userAreaVisitsApi } from '../services/api';
 import { ClimbingArea, Gym } from '../types';
 import { GroupsStackParamList, MapStackParamList } from '../types';
 import { getAllPolylines } from '../data/worldBorders';
+import { WORLD_CITIES } from '../data/worldCities';
 import { StackNavigationProp } from '@react-navigation/stack';
 import {
   GestureDetector,
@@ -41,6 +42,8 @@ const IDLE_TIMEOUT_MS = 2500;
 const CAMERA_DISTANCE_DEFAULT = 4.5;
 const CAMERA_DISTANCE_MIN = 1.65; // allow zoom in close (globe radius 1.5 → ~0.15 from surface)
 const CAMERA_DISTANCE_MAX = 10;
+const CITIES_ZOOM_THRESHOLD = 2.2; // show city labels when camera distance below this
+const MAX_CITY_LABELS = 80; // cap visible city labels when zoomed in
 const OVERLAY_UPDATE_EVERY_N_FRAMES = 1; // update overlay every frame for responsive drag/zoom
 // Layout size of the globe view (square)
 const GLOBE_VIEW_SIZE = SCREEN_W;
@@ -104,7 +107,8 @@ const GlobeMapScreen: React.FC = () => {
   const overlayDataRef = useRef<{
     pathD: string;
     positions: Record<string, { x: number; y: number; visible: boolean }>;
-  }>({ pathD: '', positions: {} });
+    cityLabels: Array<{ x: number; y: number; name: string }>;
+  }>({ pathD: '', positions: {}, cityLabels: [] });
 
   // Three.js refs
   const rendererRef = useRef<Renderer | null>(null);
@@ -421,7 +425,31 @@ const GlobeMapScreen: React.FC = () => {
             };
           }
 
-          overlayDataRef.current = { pathD: pathParts.join(' '), positions };
+          // City labels: only when zoomed in; project, cull, sort by depth, cap at MAX_CITY_LABELS
+          let cityLabels: Array<{ x: number; y: number; name: string }> = [];
+          if (cameraDistanceRef.current < CITIES_ZOOM_THRESHOLD) {
+            const withProj: Array<{ x: number; y: number; name: string; z: number }> = [];
+            for (let i = 0; i < WORLD_CITIES.length; i++) {
+              const city = WORLD_CITIES[i];
+              w1.copy(latLngToVec3(city.lat, city.lng, graticuleRadius)).applyEuler(rot);
+              const proj = projectToScreen(w1, cam, bufW, bufH);
+              if (!proj.visible) continue;
+              withProj.push({
+                x: proj.x * scaleX - OVERLAY_SVG_PADDING,
+                y: proj.y * scaleY - OVERLAY_SVG_PADDING,
+                name: city.name,
+                z: w1.z,
+              });
+            }
+            withProj.sort((a, b) => b.z - a.z); // front (larger z) first
+            cityLabels = withProj.slice(0, MAX_CITY_LABELS).map(({ x, y, name }) => ({ x, y, name }));
+          }
+
+          overlayDataRef.current = {
+            pathD: pathParts.join(' '),
+            positions,
+            cityLabels,
+          };
           setOverlayTick((t) => t + 1);
         }
       }
@@ -592,6 +620,18 @@ const GlobeMapScreen: React.FC = () => {
                       fill="none"
                     />
                   </Svg>
+                  {data.cityLabels.map((label, idx) => (
+                    <View
+                      key={`city-${idx}-${label.name}`}
+                      style={[styles.cityMarker, { left: label.x - 120, top: label.y }]}
+                      pointerEvents="none"
+                    >
+                      <View style={styles.cityDot} />
+                      <Text style={styles.cityLabel} numberOfLines={2}>
+                        {label.name}
+                      </Text>
+                    </View>
+                  ))}
                   {pinData.map(({ id, hasFriends, area, gym }) => {
                     const pos = data.positions[id];
                     if (!pos || !pos.visible) return null;
@@ -850,6 +890,28 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
     elevation: 6,
+  },
+  cityMarker: {
+    position: 'absolute',
+    width: 240,
+    alignItems: 'center',
+    overflow: 'visible',
+  },
+  cityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(140, 140, 140, 0.9)',
+    marginBottom: 2,
+  },
+  cityLabel: {
+    fontSize: 9,
+    color: 'rgba(255, 255, 255, 0.85)',
+    width: 240,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 1.5,
   },
   legend: {
     flexDirection: 'row',
