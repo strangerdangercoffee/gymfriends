@@ -4,6 +4,8 @@
   <dict>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
+    <key>CFBundleAllowMixedLocalizations</key>
+    <true/>
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
@@ -31,6 +33,12 @@
           <string>com.gymfriends.app</string>
         </array>
       </dict>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>exp+gymfriend</string>
+        </array>
+      </dict>
     </array>
     <key>CFBundleVersion</key>
     <string>1</string>
@@ -47,6 +55,8 @@
     </dict>
     <key>NSCameraUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your camera</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Allow Gym Friends to access your contacts so you can invite friends.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Allow Gym Friends to use your location to automatically check you in when you arrive at the gym.</string>
     <key>NSLocationAlwaysUsageDescription</key>
@@ -61,6 +71,7 @@
     <true/>
     <key>UIBackgroundModes</key>
     <array>
+      <string>location</string>
       <string>fetch</string>
     </array>
     <key>UILaunchStoryboardName</key>

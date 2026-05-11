@@ -12,6 +12,7 @@ import { invitationService, FriendInvitation } from '../services/invitations';
 import { useAuth } from '../context/AuthContext';
 import Card from './Card';
 import Button from './Button';
+import { colors } from '../theme/colors';
 
 const PendingInvitations: React.FC = () => {
   const { user } = useAuth();
@@ -63,15 +64,15 @@ const PendingInvitations: React.FC = () => {
   const getStatusColor = (status: FriendInvitation['status']) => {
     switch (status) {
       case 'pending':
-        return '#FF9500';
+        return colors.secondary;
       case 'accepted':
-        return '#34C759';
+        return colors.success;
       case 'declined':
-        return '#FF3B30';
+        return colors.error;
       case 'expired':
-        return '#8E8E93';
+        return colors.textMuted;
       default:
-        return '#8E8E93';
+        return colors.textMuted;
     }
   };
 
@@ -111,7 +112,7 @@ const PendingInvitations: React.FC = () => {
               <Ionicons
                 name={contactType === 'email' ? 'mail' : 'chatbubble'}
                 size={16}
-                color="#8E8E93"
+                color={colors.textMuted}
                 style={styles.contactIcon}
               />
               <Text style={styles.inviteeContact}>{contactInfo}</Text>
@@ -125,7 +126,7 @@ const PendingInvitations: React.FC = () => {
             <Ionicons 
               name={getStatusIcon(item.status) as any} 
               size={12} 
-              color="white" 
+              color={colors.text} 
             />
             <Text style={styles.statusText}>{item.status}</Text>
           </View>
@@ -141,7 +142,7 @@ const PendingInvitations: React.FC = () => {
             style={styles.cancelButton}
             onPress={() => handleCancelInvitation(item.id)}
           >
-            <Ionicons name="close" size={16} color="#FF3B30" />
+            <Ionicons name="close" size={16} color={colors.error} />
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
         </View>
@@ -149,7 +150,7 @@ const PendingInvitations: React.FC = () => {
 
       {item.status === 'accepted' && (
         <View style={styles.acceptedInfo}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+          <Ionicons name="checkmark-circle" size={16} color={colors.success} />
           <Text style={styles.acceptedText}>
             Accepted {item.acceptedAt ? formatDate(item.acceptedAt) : ''}
           </Text>
@@ -198,17 +199,17 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 16,
   },
   loadingText: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     paddingVertical: 20,
   },
@@ -235,11 +236,11 @@ const styles = StyleSheet.create({
   inviteeContact: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#000',
+    color: colors.text,
   },
   invitationDate: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   statusContainer: {
     marginLeft: 12,
@@ -254,7 +255,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '500',
-    color: 'white',
+    color: colors.text,
     marginLeft: 4,
     textTransform: 'capitalize',
   },
@@ -264,11 +265,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
+    borderTopColor: colors.border,
   },
   expiresText: {
     fontSize: 12,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   cancelButton: {
     flexDirection: 'row',
@@ -278,7 +279,7 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     fontSize: 12,
-    color: '#FF3B30',
+    color: colors.error,
     marginLeft: 4,
   },
   acceptedInfo: {
@@ -286,11 +287,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
+    borderTopColor: colors.border,
   },
   acceptedText: {
     fontSize: 12,
-    color: '#34C759',
+    color: colors.success,
     marginLeft: 4,
   },
 });

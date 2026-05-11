@@ -13,13 +13,16 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { tripInvitationsApi } from '../services/api';
+import { notificationService } from '../services/notifications';
 import { UserAreaPlan } from '../types';
 import Button from './Button';
+import { colors } from '../theme/colors';
 
 interface InviteFriendsToTripModalProps {
   visible: boolean;
   onClose: () => void;
   trip: UserAreaPlan;
+  areaName?: string;
   onSuccess?: () => void;
 }
 
@@ -27,6 +30,7 @@ const InviteFriendsToTripModal: React.FC<InviteFriendsToTripModalProps> = ({
   visible,
   onClose,
   trip,
+  areaName = 'this area',
   onSuccess,
 }) => {
   const { user } = useAuth();
@@ -57,8 +61,30 @@ const InviteFriendsToTripModal: React.FC<InviteFriendsToTripModalProps> = ({
     if (!user?.id || selectedIds.size === 0) return;
     setSaving(true);
     try {
+      const inviterName = user.name || 'A friend';
+      const dateRange = `${trip.startDate} – ${trip.endDate}`;
       for (const inviteeId of selectedIds) {
-        await tripInvitationsApi.create(trip.id, user.id, inviteeId, comment.trim() || undefined);
+        const inv = await tripInvitationsApi.create(
+          trip.id,
+          user.id,
+          inviteeId,
+          comment.trim() || undefined
+        );
+        try {
+          await notificationService.sendNotification(inviteeId, {
+            title: `${inviterName} invited you on a trip`,
+            body: `Open ${areaName} to respond or plan your dates · ${dateRange}`,
+            data: {
+              type: 'trip_invitation',
+              areaId: trip.areaId,
+              areaName,
+              tripId: trip.id,
+              invitationId: inv.id !== 'pending' ? inv.id : undefined,
+            },
+          });
+        } catch (e) {
+          console.warn('Trip invite push failed', e);
+        }
       }
       Alert.alert('Success', 'Invitations sent');
       setComment('');
@@ -129,7 +155,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   card: {
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 20,
     maxHeight: '80%',

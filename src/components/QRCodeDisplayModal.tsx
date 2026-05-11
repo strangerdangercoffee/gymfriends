@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { useAuth } from '../context/AuthContext';
+import { colors } from '../theme/colors';
 
 interface QRCodeDisplayModalProps {
   visible: boolean;
@@ -28,25 +29,15 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
 
   if (!user) return null;
 
-  // Create QR code data - either group invitation or user info
-  const qrData = groupId
-    ? JSON.stringify({
-        type: 'gymfriends_group_invitation',
-        groupId: groupId,
-        groupName: groupName || 'Group',
-        timestamp: Date.now(),
-      })
-    : JSON.stringify({
-        type: 'gymfriends_user',
-        userId: user.id,
-        name: user.name,
-        timestamp: Date.now(),
-      });
+  // TODO: Update DOWNLOAD_URL to the App Store URL before going to production.
+  const DOWNLOAD_URL = 'https://testflight.apple.com/join/xuBRrEyj';
 
-  // Debug logging
-  if (groupId) {
-    console.log('QRCodeDisplayModal: Generating group QR code', { groupId, groupName, qrData });
-  }
+  // QR value is a URL so that users without the app are sent to TestFlight when
+  // they scan with the iOS/Android camera app. The in-app scanner reads the
+  // gf_* params to extract the invite payload (see QRCodeScannerModal).
+  const qrData = groupId
+    ? `${DOWNLOAD_URL}?gf_type=gymfriends_group_invitation&gf_groupId=${encodeURIComponent(groupId)}&gf_groupName=${encodeURIComponent(groupName || 'Group')}`
+    : `${DOWNLOAD_URL}?gf_type=gymfriends_user&gf_userId=${encodeURIComponent(user.id)}&gf_name=${encodeURIComponent(user.name)}`;
 
   return (
     <Modal
@@ -61,7 +52,7 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
           <View style={{ width: 40 }} />
           <Text style={styles.headerTitle}>My QR Code</Text>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={28} color="#000" />
+            <Ionicons name="close" size={28} color={colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -75,7 +66,7 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
               <Ionicons 
                 name={groupId ? "people" : "person"} 
                 size={40} 
-                color="#007AFF" 
+                color={colors.primary} 
               />
             </View>
             {groupId ? (
@@ -110,7 +101,7 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
           {/* Instructions */}
           <View style={styles.instructionsContainer}>
             <View style={styles.iconRow}>
-              <Ionicons name="scan" size={24} color="#007AFF" />
+              <Ionicons name="scan" size={24} color={colors.primary} />
             </View>
             <Text style={styles.instructionsTitle}>
               {groupId ? 'How to Join Group' : 'How to Add Friends'}
@@ -122,7 +113,7 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
             </Text>
             
             <View style={styles.tipContainer}>
-              <Ionicons name="bulb-outline" size={20} color="#FF9500" />
+              <Ionicons name="bulb-outline" size={20} color={colors.secondary} />
               <Text style={styles.tipText}>
                 Tip: Keep your screen brightness high for easier scanning
               </Text>
@@ -132,15 +123,15 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
           {/* Features List */}
           <View style={styles.featuresContainer}>
             <View style={styles.featureItem}>
-              <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+              <Ionicons name="checkmark-circle" size={20} color={colors.success} />
               <Text style={styles.featureText}>No approval needed</Text>
             </View>
             <View style={styles.featureItem}>
-              <Ionicons name="flash" size={20} color="#34C759" />
+              <Ionicons name="flash" size={20} color={colors.success} />
               <Text style={styles.featureText}>Instant connection</Text>
             </View>
             <View style={styles.featureItem}>
-              <Ionicons name="shield-checkmark" size={20} color="#34C759" />
+              <Ionicons name="shield-checkmark" size={20} color={colors.success} />
               <Text style={styles.featureText}>Secure & private</Text>
             </View>
           </View>
@@ -153,7 +144,7 @@ const QRCodeDisplayModal: React.FC<QRCodeDisplayModalProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -162,14 +153,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 60,
     paddingBottom: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
+    borderBottomColor: colors.border,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   closeButton: {
     padding: 8,
@@ -187,7 +178,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#E5F1FF',
+    backgroundColor: colors.primaryMuted,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -195,42 +186,42 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   userEmail: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   qrContainer: {
     marginBottom: 32,
   },
   qrCodeWrapper: {
     padding: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.text,
     borderRadius: 20,
-    shadowColor: '#000',
+    shadowColor: colors.background,
     shadowOffset: {
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
   instructionsContainer: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 24,
     marginBottom: 24,
     width: '100%',
-    shadowColor: '#000',
+    shadowColor: colors.background,
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 2,
   },
@@ -238,7 +229,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#E5F1FF',
+    backgroundColor: colors.primaryMuted,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -246,13 +237,13 @@ const styles = StyleSheet.create({
   instructionsTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 12,
     textAlign: 'center',
   },
   instructionsText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 16,
@@ -260,7 +251,7 @@ const styles = StyleSheet.create({
   tipContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF9E6',
+    backgroundColor: colors.secondaryMuted,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -268,21 +259,21 @@ const styles = StyleSheet.create({
   },
   tipText: {
     fontSize: 14,
-    color: '#FF9500',
+    color: colors.secondary,
     marginLeft: 8,
     flex: 1,
   },
   featuresContainer: {
     width: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: colors.background,
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 2,
   },
@@ -293,7 +284,7 @@ const styles = StyleSheet.create({
   },
   featureText: {
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
     marginLeft: 12,
     fontWeight: '500',
   },

@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { Gym } from '../types';
 import Card from '../components/Card';
 import Button from '../components/Button';
+import { colors } from '../theme/colors';
 
 const GymsScreen: React.FC = () => {
   const { gyms, isLoading, followGym, unfollowGym, checkIn, checkOut, refreshData, presence } = useApp();
@@ -129,7 +130,7 @@ const GymsScreen: React.FC = () => {
       <Card style={styles.gymCard}>
         <View style={styles.gymHeader}>
           <View style={styles.gymInfo}>
-            <View style={[styles.gymIcon, { backgroundColor: '#FF9500' }]}>
+            <View style={[styles.gymIcon, { backgroundColor: colors.secondary }]}>
               <Ionicons name="trending-up-outline" size={20} color="white" />
             </View>
             <View style={styles.gymDetails}>
@@ -194,7 +195,7 @@ const GymsScreen: React.FC = () => {
       <Card style={styles.searchGymCard}>
         <View style={styles.gymHeader}>
           <View style={styles.gymInfo}>
-            <View style={[styles.gymIcon, { backgroundColor: '#FF9500' }]}>
+            <View style={[styles.gymIcon, { backgroundColor: colors.secondary }]}>
               <Ionicons name="trending-up-outline" size={20} color="white" />
             </View>
             <View style={styles.gymDetails}>
@@ -327,7 +328,7 @@ const GymsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -335,14 +336,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
   },
   findGymButton: {
     paddingHorizontal: 16,
@@ -383,12 +384,12 @@ const styles = StyleSheet.create({
   gymName: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   gymAddress: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   followButton: {
     padding: 8,
@@ -404,7 +405,7 @@ const styles = StyleSheet.create({
   },
   statText: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginLeft: 4,
   },
   gymActions: {
@@ -427,19 +428,19 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
   },
   // Modal styles
   modalContainer: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -447,25 +448,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     marginHorizontal: 16,
     marginVertical: 16,
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
+    borderColor: colors.border,
   },
   searchIcon: {
     marginRight: 8,
@@ -474,7 +475,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
   },
   searchListContainer: {
     paddingHorizontal: 16,

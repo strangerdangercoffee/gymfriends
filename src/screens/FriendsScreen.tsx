@@ -21,6 +21,7 @@ import FriendInvitationModal from '../components/FriendInvitationModal';
 import OnboardingInviteFriends from '../components/OnboardingInviteFriends';
 import QRCodeDisplayModal from '../components/QRCodeDisplayModal';
 import QRCodeScannerModal from '../components/QRCodeScannerModal';
+import { colors } from '../theme/colors';
 
 const FriendsScreen: React.FC = () => {
   const { friends, gyms, presence, isLoading, addFriend, addFriendInstant, refreshData } = useApp();
@@ -495,7 +496,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 18,
     fontWeight: '600',
-    color: 'white',
+    color: colors.text,
   },
   friendDetails: {
     flex: 1,

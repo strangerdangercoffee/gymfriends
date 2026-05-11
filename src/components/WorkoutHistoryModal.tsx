@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { WorkoutHistory, WorkoutExercise, Gym } from '../types';
 import { useApp } from '../context/AppContext';
+import { colors } from '../theme/colors';
 
 interface WorkoutHistoryModalProps {
   visible: boolean;
@@ -162,7 +163,7 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-            <Ionicons name="close" size={28} color="#000" />
+            <Ionicons name="close" size={28} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Workout Details</Text>
           <View style={styles.headerActions}>
@@ -172,7 +173,7 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
               </TouchableOpacity>
             ) : (
               <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.headerButton}>
-                <Ionicons name="create-outline" size={24} color="#007AFF" />
+                <Ionicons name="create-outline" size={24} color={colors.primary} />
               </TouchableOpacity>
             )}
           </View>
@@ -184,21 +185,21 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
             <Text style={styles.sectionTitle}>Date & Time</Text>
             <View style={styles.card}>
               <View style={styles.infoRow}>
-                <Ionicons name="calendar" size={20} color="#666" />
+                <Ionicons name="calendar" size={20} color={colors.textMuted} />
                 <Text style={styles.infoText}>{formatDate(workout.startTime)}</Text>
               </View>
               <View style={styles.infoRow}>
-                <Ionicons name="time" size={20} color="#666" />
+                <Ionicons name="time" size={20} color={colors.textMuted} />
                 <Text style={styles.infoText}>
                   {formatTime(workout.startTime)} - {formatTime(workout.endTime)}
                 </Text>
               </View>
               <View style={styles.infoRow}>
-                <Ionicons name="hourglass" size={20} color="#666" />
+                <Ionicons name="hourglass" size={20} color={colors.textMuted} />
                 <Text style={styles.infoText}>Duration: {formatDuration(workout.duration)}</Text>
               </View>
               <View style={styles.infoRow}>
-                <Ionicons name="location" size={20} color="#666" />
+                <Ionicons name="location" size={20} color={colors.textMuted} />
                 <Text style={styles.infoText}>{getGymName()}</Text>
               </View>
             </View>
@@ -243,7 +244,7 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
                     <Ionicons 
                       name={type.icon as any} 
                       size={24} 
-                      color={workoutType === type.key ? type.color : '#666'} 
+                      color={workoutType === type.key ? type.color : colors.textMuted} 
                     />
                     <Text style={[
                       styles.typeButtonText,
@@ -291,7 +292,7 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
               <Text style={styles.sectionTitle}>Exercises</Text>
               {isEditing && (
                 <TouchableOpacity onPress={addExercise} style={styles.addButton}>
-                  <Ionicons name="add-circle" size={24} color="#007AFF" />
+                  <Ionicons name="add-circle" size={24} color={colors.primary} />
                   <Text style={styles.addButtonText}>Add Exercise</Text>
                 </TouchableOpacity>
               )}
@@ -314,7 +315,7 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
                           onChangeText={(text) => updateExercise(exercise.id, { name: text })}
                         />
                         <TouchableOpacity onPress={() => removeExercise(exercise.id)}>
-                          <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                          <Ionicons name="trash-outline" size={20} color={colors.error} />
                         </TouchableOpacity>
                       </View>
                       <View style={styles.exerciseDetails}>
@@ -371,7 +372,7 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
           {/* Delete Button */}
           {!isEditing && (
             <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+              <Ionicons name="trash-outline" size={20} color={colors.error} />
               <Text style={styles.deleteButtonText}>Delete Workout</Text>
             </TouchableOpacity>
           )}
@@ -386,7 +387,7 @@ const WorkoutHistoryModal: React.FC<WorkoutHistoryModalProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -395,9 +396,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 60,
     paddingBottom: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
+    borderBottomColor: colors.border,
   },
   headerButton: {
     padding: 8,
@@ -405,7 +406,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   headerActions: {
     flexDirection: 'row',
@@ -414,7 +415,7 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#007AFF',
+    color: colors.primary,
   },
   content: {
     flex: 1,
@@ -432,18 +433,18 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#8E8E93',
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
-    shadowColor: '#000',
+    shadowColor: colors.background,
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.3,
     shadowRadius: 2,
     elevation: 1,
   },
@@ -454,17 +455,17 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
     marginLeft: 12,
   },
   input: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
     borderWidth: 1,
-    borderColor: '#E5E5EA',
+    borderColor: colors.border,
   },
   notesInput: {
     height: 100,
@@ -472,11 +473,11 @@ const styles = StyleSheet.create({
   },
   displayText: {
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
   },
   emptyText: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontStyle: 'italic',
   },
   typeScroll: {
@@ -491,18 +492,18 @@ const styles = StyleSheet.create({
     marginRight: 12,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#E5E5EA',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     minWidth: 100,
   },
   typeButtonActive: {
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
   },
   typeButtonText: {
     marginTop: 4,
     fontSize: 12,
     fontWeight: '600',
-    color: '#666',
+    color: colors.textMuted,
   },
   typeDisplay: {
     flexDirection: 'row',
@@ -520,17 +521,17 @@ const styles = StyleSheet.create({
   addButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#007AFF',
+    color: colors.primary,
     marginLeft: 4,
   },
   exerciseCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
+    shadowColor: colors.background,
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.3,
     shadowRadius: 2,
     elevation: 1,
   },
@@ -551,18 +552,18 @@ const styles = StyleSheet.create({
   },
   exerciseInput: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
-    color: '#000',
+    color: colors.text,
     borderWidth: 1,
-    borderColor: '#E5E5EA',
+    borderColor: colors.border,
   },
   exerciseName: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 8,
   },
   exerciseStats: {
@@ -572,8 +573,8 @@ const styles = StyleSheet.create({
   },
   exerciseStat: {
     fontSize: 14,
-    color: '#666',
-    backgroundColor: '#F8F9FA',
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceElevated,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
@@ -582,18 +583,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     marginHorizontal: 16,
     marginTop: 24,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#FF3B30',
+    borderColor: colors.error,
   },
   deleteButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FF3B30',
+    color: colors.error,
     marginLeft: 8,
   },
   bottomSpacing: {

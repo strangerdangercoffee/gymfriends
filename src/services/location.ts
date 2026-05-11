@@ -150,29 +150,29 @@ export class LocationService {
     return distance <= radiusMeters;
   }
 
-  async findNearbyGyms(
+  /**
+   * Single pass over gyms + outdoor areas for one location tick (geofencing).
+   * Avoids duplicating haversine work when both checks run on the same lat/lon.
+   */
+  findGymAndAreaProximity(
     userLat: number,
     userLon: number,
-    gyms: Array<{ latitude: number; longitude: number; id: string }>,
-    radiusMeters: number = 1000
-  ): Promise<Array<{ id: string; distance: number }>> {
-    const nearbyGyms = gyms
+    gyms: Array<{ id: string; latitude: number; longitude: number }>,
+    gymRadiusMeters: number,
+    areas: Array<{ id: string; latitude: number; longitude: number; geofenceRadiusM: number }>
+  ): {
+    nearbyGymsSorted: Array<{ id: string; distance: number }>;
+    nearbyAreasSorted: Array<{ id: string; distance: number }>;
+  } {
+    const nearbyGymsSorted = gyms
       .map((gym) => ({
         id: gym.id,
         distance: this.calculateDistance(userLat, userLon, gym.latitude, gym.longitude),
       }))
-      .filter((gym) => gym.distance <= radiusMeters)
+      .filter((gym) => gym.distance <= gymRadiusMeters)
       .sort((a, b) => a.distance - b.distance);
 
-    return nearbyGyms;
-  }
-
-  findNearbyAreas(
-    userLat: number,
-    userLon: number,
-    areas: Array<{ id: string; latitude: number; longitude: number; geofenceRadiusM: number }>
-  ): Array<{ id: string; distance: number }> {
-    return areas
+    const nearbyAreasSorted = areas
       .map((area) => ({
         id: area.id,
         distance: this.calculateDistance(userLat, userLon, area.latitude, area.longitude),
@@ -181,6 +181,26 @@ export class LocationService {
       .filter((a) => a.distance <= a.radius)
       .map(({ id, distance }) => ({ id, distance }))
       .sort((a, b) => a.distance - b.distance);
+
+    return { nearbyGymsSorted, nearbyAreasSorted };
+  }
+
+  /** @deprecated Prefer findGymAndAreaProximity when also evaluating areas (same location tick). */
+  findNearbyGyms(
+    userLat: number,
+    userLon: number,
+    gyms: Array<{ latitude: number; longitude: number; id: string }>,
+    radiusMeters: number = 1000
+  ): Array<{ id: string; distance: number }> {
+    return this.findGymAndAreaProximity(userLat, userLon, gyms, radiusMeters, []).nearbyGymsSorted;
+  }
+
+  findNearbyAreas(
+    userLat: number,
+    userLon: number,
+    areas: Array<{ id: string; latitude: number; longitude: number; geofenceRadiusM: number }>
+  ): Array<{ id: string; distance: number }> {
+    return this.findGymAndAreaProximity(userLat, userLon, [], 0, areas).nearbyAreasSorted;
   }
 }
 

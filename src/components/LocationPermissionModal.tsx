@@ -10,6 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../theme/colors';
 
 interface LocationPermissionModalProps {
   visible: boolean;
@@ -48,10 +49,10 @@ const LocationPermissionModal: React.FC<LocationPermissionModalProps> = ({
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.iconContainer}>
-              <Ionicons name="location" size={40} color="#007AFF" />
+              <Ionicons name="location" size={40} color={colors.primary} />
             </View>
             <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <Ionicons name="close" size={24} color="#666" />
+              <Ionicons name="close" size={24} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -73,28 +74,28 @@ const LocationPermissionModal: React.FC<LocationPermissionModalProps> = ({
               <Text style={styles.sectionTitle}>Why enable this?</Text>
               
               <View style={styles.benefitItem}>
-                <Ionicons name="checkmark-circle" size={24} color="#34C759" />
+                <Ionicons name="checkmark-circle" size={24} color={colors.success} />
                 <Text style={styles.benefitText}>
                   Automatically check in when within 500ft of your gym
                 </Text>
               </View>
 
               <View style={styles.benefitItem}>
-                <Ionicons name="checkmark-circle" size={24} color="#34C759" />
+                <Ionicons name="checkmark-circle" size={24} color={colors.success} />
                 <Text style={styles.benefitText}>
                   Let your friends know you're at the gym without lifting a finger
                 </Text>
               </View>
 
               <View style={styles.benefitItem}>
-                <Ionicons name="checkmark-circle" size={24} color="#34C759" />
+                <Ionicons name="checkmark-circle" size={24} color={colors.success} />
                 <Text style={styles.benefitText}>
                   Automatically check out when you leave
                 </Text>
               </View>
 
               <View style={styles.benefitItem}>
-                <Ionicons name="checkmark-circle" size={24} color="#34C759" />
+                <Ionicons name="checkmark-circle" size={24} color={colors.success} />
                 <Text style={styles.benefitText}>
                   Track your gym visits automatically
                 </Text>
@@ -106,21 +107,21 @@ const LocationPermissionModal: React.FC<LocationPermissionModalProps> = ({
               <Text style={styles.sectionTitle}>Your Privacy</Text>
               
               <View style={styles.privacyItem}>
-                <Ionicons name="shield-checkmark" size={20} color="#007AFF" />
+                <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
                 <Text style={styles.privacyText}>
                   We only track your location to detect when you're at a gym
                 </Text>
               </View>
 
               <View style={styles.privacyItem}>
-                <Ionicons name="shield-checkmark" size={20} color="#007AFF" />
+                <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
                 <Text style={styles.privacyText}>
                   Your location data is never shared without your permission
                 </Text>
               </View>
 
               <View style={styles.privacyItem}>
-                <Ionicons name="shield-checkmark" size={20} color="#007AFF" />
+                <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
                 <Text style={styles.privacyText}>
                   You can disable this feature anytime in settings
                 </Text>
@@ -184,7 +185,7 @@ const LocationPermissionModal: React.FC<LocationPermissionModalProps> = ({
             ) : (
               <>
                 <View style={styles.successContainer}>
-                  <Ionicons name="checkmark-circle" size={32} color="#34C759" />
+                  <Ionicons name="checkmark-circle" size={32} color={colors.success} />
                   <Text style={styles.successText}>
                     Auto check-in is enabled!
                   </Text>
@@ -219,7 +220,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '90%',
@@ -237,7 +238,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.primaryMuted,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -250,12 +251,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     marginBottom: 12,
   },
   description: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
     lineHeight: 22,
     marginBottom: 24,
   },
@@ -265,7 +266,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 12,
   },
   benefitItem: {
@@ -276,7 +277,7 @@ const styles = StyleSheet.create({
   },
   benefitText: {
     fontSize: 15,
-    color: '#333',
+    color: colors.textSecondary,
     marginLeft: 12,
     flex: 1,
     lineHeight: 20,
@@ -289,13 +290,13 @@ const styles = StyleSheet.create({
   },
   privacyText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textMuted,
     marginLeft: 10,
     flex: 1,
     lineHeight: 18,
   },
   instructionsSection: {
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     padding: 16,
     marginTop: 8,
@@ -303,12 +304,12 @@ const styles = StyleSheet.create({
   instructionsTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 12,
   },
   instructionStep: {
     fontSize: 14,
-    color: '#333',
+    color: colors.textSecondary,
     marginBottom: 8,
     lineHeight: 20,
   },
@@ -316,14 +317,14 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   primaryButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.secondary,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 12,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '600',
   },
@@ -334,7 +335,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButtonText: {
-    color: '#007AFF',
+    color: colors.primary,
     fontSize: 17,
     fontWeight: '500',
   },
@@ -342,7 +343,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E8F5E9',
+    backgroundColor: colors.successMuted,
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
@@ -350,7 +351,7 @@ const styles = StyleSheet.create({
   successText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2E7D32',
+    color: colors.success,
     marginLeft: 12,
   },
   linkButton: {
@@ -358,7 +359,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   linkButtonText: {
-    color: '#007AFF',
+    color: colors.primary,
     fontSize: 15,
     fontWeight: '500',
   },

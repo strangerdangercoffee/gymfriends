@@ -7,9 +7,18 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CalendarDay, WorkoutSession } from '../types';
+import { colors } from '../theme/colors';
+import {
+  buildSpanSegmentsForWeek,
+  isSpanningTripEvent,
+  monthWeekSpanningPartition,
+  type SpanSegment,
+} from '../utils/calendarSpanUtils';
 
 interface CalendarGridProps {
   currentDate: Date;
@@ -18,12 +27,23 @@ interface CalendarGridProps {
   onWorkoutPress: (workout: WorkoutSession) => void;
   onDayPress?: (date: Date) => void;
   viewType: 'week' | 'month';
+  /** Friend calendar: max span rows per week; extra trips go to "+N more". */
+  monthSpanMaxVisibleLanes?: number;
 }
 
 const { width: screenWidth } = Dimensions.get('window');
 const { height: screenHeight } = Dimensions.get('window');
 const HOUR_HEIGHT = 60;
 const TIME_SLOT_HEIGHT = 30;
+
+/** Month trip spans: gap between bars equals gap below day number before first bar. */
+const MONTH_TRIP_BAR_H = 16;
+const MONTH_TRIP_GAP = 2;
+const MONTH_TRIP_LANE_STEP = MONTH_TRIP_BAR_H + MONTH_TRIP_GAP;
+const MONTH_CELL_PAD_TOP = 4;
+const MONTH_DAY_NUM_LINE_H = 18;
+const MONTH_DATE_BOTTOM = MONTH_CELL_PAD_TOP + MONTH_DAY_NUM_LINE_H;
+const MONTH_FIRST_TRIP_TOP = MONTH_DATE_BOTTOM + MONTH_TRIP_GAP;
 
 const CalendarGrid: React.FC<CalendarGridProps> = ({
   currentDate,
@@ -32,8 +52,17 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
   onWorkoutPress,
   onDayPress,
   viewType,
+  monthSpanMaxVisibleLanes,
 }) => {
   const scrollViewRef = useRef<ScrollView>(null);
+  const [monthOverflowModal, setMonthOverflowModal] = useState<WorkoutSession[] | null>(
+    null
+  );
+
+  const spanningWorkouts = useMemo(
+    () => workouts.filter(isSpanningTripEvent),
+    [workouts]
+  );
 
   // Calculate number of rows needed for month view
   const monthRows = useMemo(() => {
@@ -76,6 +105,7 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
         date.setDate(startOfWeek.getDate() + i);
         
         const dayWorkouts = workouts.filter(workout => {
+          if (isSpanningTripEvent(workout)) return false;
           const workoutDate = new Date(workout.startTime);
           return workoutDate.toDateString() === date.toDateString();
         });
@@ -111,6 +141,7 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
         date.setDate(startDate.getDate() + i);
         
         const dayWorkouts = workouts.filter(workout => {
+          if (isSpanningTripEvent(workout)) return false;
           const workoutDate = new Date(workout.startTime);
           workoutDate.setHours(0, 0, 0, 0);
           const compareDate = new Date(date);
@@ -131,6 +162,55 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
 
     return days;
   }, [currentDate, workouts, viewType]);
+
+  const weekSpanSegments = useMemo(() => {
+    if (viewType !== 'week' || calendarDays.length < 1) return [];
+    return buildSpanSegmentsForWeek(calendarDays[0].date, spanningWorkouts);
+  }, [viewType, calendarDays, spanningWorkouts]);
+
+  const monthWeekLayouts = useMemo(() => {
+    if (viewType !== 'month') return [];
+    return Array.from({ length: monthRows }, (_, row) => {
+      const sun = calendarDays[row * 7]?.date;
+      if (!sun) {
+        return {
+          rowSegs: [] as SpanSegment[],
+          overflowWorkouts: [] as WorkoutSession[],
+          displayLanes: 0,
+          spanH: 0,
+        };
+      }
+      const { rowSegs, overflowWorkouts, displayLaneCount } =
+        monthWeekSpanningPartition(sun, spanningWorkouts, monthSpanMaxVisibleLanes);
+      const spanH =
+        displayLaneCount > 0 ? displayLaneCount * MONTH_TRIP_LANE_STEP : 0;
+      return {
+        rowSegs,
+        overflowWorkouts,
+        displayLanes: displayLaneCount,
+        spanH,
+      };
+    });
+  }, [
+    viewType,
+    monthRows,
+    calendarDays,
+    spanningWorkouts,
+    monthSpanMaxVisibleLanes,
+  ]);
+
+  const monthRowSpanHeights = useMemo(
+    () => monthWeekLayouts.map((l) => l.spanH),
+    [monthWeekLayouts]
+  );
+
+  const monthCellHeight = useMemo(() => {
+    if (viewType !== 'month') return 72;
+    const totalSpan = monthRowSpanHeights.reduce((a, b) => a + b, 0);
+    const budget = Math.max(320, screenHeight - 260);
+    const h = (budget - totalSpan) / Math.max(monthRows, 1);
+    return Math.max(48, Math.min(120, h));
+  }, [viewType, monthRows, monthRowSpanHeights, screenHeight]);
 
   // Generate time slots (6 AM to 10 PM)
   const timeSlots = useMemo(() => {
@@ -168,8 +248,21 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
 
   const getWorkoutStyle = (workout: WorkoutSession) => {
     const baseStyle = [styles.workoutBlock];
-    if (workout.id.startsWith('trip-')) {
+    if (
+      workout.id.startsWith('cluster-f-') ||
+      workout.id.startsWith('friend-trip-span-') ||
+      workout.id.startsWith('friend-trip-')
+    ) {
       baseStyle.push(styles.tripBlock);
+      return baseStyle;
+    }
+    if (
+      workout.id.startsWith('cluster-my-') ||
+      workout.id.startsWith('trip-span-') ||
+      workout.id.startsWith('my-trip-span-') ||
+      workout.id.startsWith('my-trip-')
+    ) {
+      baseStyle.push(styles.myTripBlock);
       return baseStyle;
     }
     // Add completed style if workout is completed
@@ -210,31 +303,43 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
 
   // Get workout background color for month view slots
   const getWorkoutColor = (workout: WorkoutSession): string => {
-    if (workout.id.startsWith('trip-')) {
-      return '#17A2B8'; // Teal for trip / performance window
+    if (
+      workout.id.startsWith('cluster-f-') ||
+      workout.id.startsWith('friend-trip-span-') ||
+      workout.id.startsWith('friend-trip-')
+    ) {
+      return '#17A2B8';
+    }
+    if (
+      workout.id.startsWith('cluster-my-') ||
+      workout.id.startsWith('trip-span-') ||
+      workout.id.startsWith('my-trip-span-') ||
+      workout.id.startsWith('my-trip-')
+    ) {
+      return '#6F42C1';
     }
     if (workout.status === 'completed') {
       return '#28A745'; // Green for completed
     }
     switch (workout.workoutType) {
       case 'limit':
-        return '#E74C3C'; // Max strength / recruitment
+        return colors.workoutTypes.limit; // Max strength / recruitment
       case 'power':
-        return '#F39C12'; // Dynamic, explosive
+        return colors.workoutTypes.power; // Dynamic, explosive
       case 'endurance':
-        return '#D35400'; // PE + aerobic power
+        return colors.workoutTypes.endurance; // PE + aerobic power
       case 'technique':
-        return '#3498DB'; // Movement, footwork, skills
+        return colors.workoutTypes.technique; // Movement, footwork, skills
       case 'volume':
-        return '#27AE60'; // ARC, base building
+        return colors.workoutTypes.volume; // ARC, base building
       case 'projecting':
-        return '#8E44AD'; // Performance, tactics
+        return colors.workoutTypes.projecting; // Performance, tactics
       case 'recovery':
-        return '#95A5A6'; // Mobility, yoga, prehab
+        return colors.workoutTypes.recovery; // Mobility, yoga, prehab
       case 'cardio':
-        return '#96CEB4'; // Aerobic endurance
+        return colors.workoutTypes.cardio; // Aerobic endurance
       default:
-        return '#FECA57';
+        return colors.workoutTypes.volume;
     }
   };
 
@@ -338,7 +443,7 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
                 </View>
                 {workout.status === 'completed' && (
                   <View style={styles.completedBadge}>
-                    <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+                    <Ionicons name="checkmark-circle" size={16} color={colors.text} />
                   </View>
                 )}
               </View>
@@ -379,6 +484,42 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
         </View>
       )}
 
+      {viewType === 'week' && weekSpanSegments.length > 0 && (
+        <View
+          style={[
+            styles.weekTripStrip,
+            {
+              height:
+                Math.max(...weekSpanSegments.map((s) => s.lane)) * 22 + 28,
+            },
+          ]}
+        >
+          <View style={styles.timeColumnSpacer} />
+          <View style={styles.weekTripStripInner}>
+            {weekSpanSegments.map((seg) => (
+              <TouchableOpacity
+                key={seg.workout.id}
+                activeOpacity={0.85}
+                style={[
+                  styles.weekTripBar,
+                  {
+                    left: `${(seg.startCol / 7) * 100}%`,
+                    width: `${((seg.endCol - seg.startCol + 1) / 7) * 100}%`,
+                    top: seg.lane * 22 + 4,
+                    backgroundColor: getWorkoutColor(seg.workout),
+                  },
+                ]}
+                onPress={() => onWorkoutPress(seg.workout)}
+              >
+                <Text style={styles.weekTripBarText} numberOfLines={1}>
+                  {seg.workout.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
       {/* Calendar Grid */}
       {viewType === 'week' ? (
         <ScrollView 
@@ -410,66 +551,194 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
               </View>
             ))}
           </View>
-          {/* Month grid */}
-          <View style={styles.monthGrid}>
-            {calendarDays.map((day) => {
-              const isCurrentMonth = day.date.getMonth() === currentDate.getMonth();
-              const workoutCount = day.workouts.length;
-              
-              return (
-                <TouchableOpacity
-                  key={day.date.toISOString()}
-                  style={[
-                    styles.monthDayCell,
-                    {
-                      height: (screenHeight - 300) / monthRows, // Dynamic height based on rows needed
-                    },
-                    !isCurrentMonth && styles.monthDayCellOtherMonth,
-                    day.isToday && styles.monthDayCellToday,
-                    workoutCount > 0 && styles.monthDayCellWithWorkouts,
-                  ]}
-                  onPress={() => onDayPress?.(day.date)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.monthDayNumber,
-                      !isCurrentMonth && styles.monthDayNumberOtherMonth,
-                      day.isToday && styles.monthDayNumberToday,
-                    ]}
-                  >
-                    {day.date.getDate()}
-                  </Text>
-                  {day.workouts.length > 0 && (
-                    <View style={styles.monthDayWorkoutsContainer}>
-                      {day.workouts.slice(0, 3).map((workout, index) => (
-                        <View
-                          key={workout.id}
+          {Array.from({ length: monthRows }, (_, rowIdx) => {
+            const weekDays = calendarDays.slice(rowIdx * 7, rowIdx * 7 + 7);
+            if (!weekDays.length) return null;
+            const layout = monthWeekLayouts[rowIdx];
+            const rowSegs = layout?.rowSegs ?? [];
+            const overflowWorkouts = layout?.overflowWorkouts ?? [];
+            const spanH = monthRowSpanHeights[rowIdx] ?? 0;
+            const lanes = layout?.displayLanes ?? 0;
+            const baseLanes =
+              rowSegs.length > 0
+                ? Math.max(...rowSegs.map((s) => s.lane)) + 1
+                : 0;
+            return (
+              <View key={`month-row-${rowIdx}`} style={styles.monthWeekBlock}>
+                <View style={styles.monthGridRow}>
+                  {weekDays.map((day) => {
+                    const isCurrentMonth =
+                      day.date.getMonth() === currentDate.getMonth();
+                    const workoutCount = day.workouts.length;
+                    return (
+                      <TouchableOpacity
+                        key={day.date.toISOString()}
+                        style={[
+                          styles.monthDayCell,
+                          { height: monthCellHeight },
+                          !isCurrentMonth && styles.monthDayCellOtherMonth,
+                          day.isToday && styles.monthDayCellToday,
+                          workoutCount > 0 && styles.monthDayCellWithWorkouts,
+                        ]}
+                        onPress={() => onDayPress?.(day.date)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
                           style={[
-                            styles.monthDayWorkoutSlot,
-                            { backgroundColor: getWorkoutColor(workout) },
+                            styles.monthDayNumber,
+                            !isCurrentMonth && styles.monthDayNumberOtherMonth,
+                            day.isToday && styles.monthDayNumberToday,
                           ]}
                         >
-                          <Text style={styles.monthDayWorkoutSlotText} numberOfLines={1}>
-                            {workout.title}
-                          </Text>
-                        </View>
-                      ))}
-                      {day.workouts.length > 3 && (
-                        <View style={styles.monthDayWorkoutMore}>
-                          <Text style={styles.monthDayWorkoutMoreText}>
-                            +{day.workouts.length - 3}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                          {day.date.getDate()}
+                        </Text>
+                        {lanes > 0 && (
+                          <View
+                            style={{ height: lanes * MONTH_TRIP_LANE_STEP }}
+                          />
+                        )}
+                        {day.workouts.length > 0 && (
+                          <View style={styles.monthDayWorkoutsContainer}>
+                            {day.workouts.slice(0, 3).map((workout) => (
+                              <View
+                                key={workout.id}
+                                style={[
+                                  styles.monthDayWorkoutSlot,
+                                  {
+                                    backgroundColor: getWorkoutColor(workout),
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={styles.monthDayWorkoutSlotText}
+                                  numberOfLines={1}
+                                >
+                                  {workout.title}
+                                </Text>
+                              </View>
+                            ))}
+                            {day.workouts.length > 3 && (
+                              <View style={styles.monthDayWorkoutMore}>
+                                <Text style={styles.monthDayWorkoutMoreText}>
+                                  +{day.workouts.length - 3}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {spanH > 0 && (
+                  <View
+                    pointerEvents="box-none"
+                    style={[
+                      styles.monthSpanOverlay,
+                      { height: monthCellHeight },
+                    ]}
+                  >
+                    {rowSegs.map((seg) => (
+                      <TouchableOpacity
+                        key={`${seg.workout.id}-r${rowIdx}`}
+                        activeOpacity={0.85}
+                        style={[
+                          styles.monthSpanBar,
+                          {
+                            left: `${(seg.startCol / 7) * 100}%`,
+                            width: `${((seg.endCol - seg.startCol + 1) / 7) * 100}%`,
+                            top:
+                              MONTH_FIRST_TRIP_TOP +
+                              seg.lane * MONTH_TRIP_LANE_STEP,
+                            backgroundColor: getWorkoutColor(seg.workout),
+                          },
+                        ]}
+                        onPress={() => onWorkoutPress(seg.workout)}
+                      >
+                        <Text style={styles.monthSpanBarText} numberOfLines={1}>
+                          {seg.workout.title}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    {overflowWorkouts.length > 0 && (
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        style={[
+                          styles.monthSpanOverflowBar,
+                          {
+                            top:
+                              MONTH_FIRST_TRIP_TOP +
+                              baseLanes * MONTH_TRIP_LANE_STEP,
+                          },
+                        ]}
+                        onPress={() =>
+                          setMonthOverflowModal(overflowWorkouts)
+                        }
+                      >
+                        <Text
+                          style={styles.monthSpanOverflowBarText}
+                          numberOfLines={1}
+                        >
+                          +{overflowWorkouts.length} more trip
+                          {overflowWorkouts.length === 1 ? '' : 's'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
+            );
+          })}
         </View>
       )}
+
+      <Modal
+        visible={monthOverflowModal != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMonthOverflowModal(null)}
+      >
+        <View style={styles.overflowModalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setMonthOverflowModal(null)}
+          />
+          <View style={styles.overflowModalCard}>
+            <Text style={styles.overflowModalTitle}>More trips this week</Text>
+            <FlatList
+              data={monthOverflowModal ?? []}
+              keyExtractor={(item) => item.id}
+              style={styles.overflowModalList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.overflowModalRow}
+                  onPress={() => {
+                    setMonthOverflowModal(null);
+                    onWorkoutPress(item);
+                  }}
+                >
+                  <Text style={styles.overflowModalRowTitle} numberOfLines={2}>
+                    {item.title}
+                  </Text>
+                  {item.spanningEndDate ? (
+                    <Text style={styles.overflowModalRowSub}>
+                      {item.startTime.toISOString().slice(0, 10)} –{' '}
+                      {item.spanningEndDate}
+                    </Text>
+                  ) : null}
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity
+              onPress={() => setMonthOverflowModal(null)}
+              style={styles.overflowModalClose}
+            >
+              <Text style={styles.overflowModalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -477,12 +746,12 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
   },
   calendarHeader: {
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderBottomWidth: 1,
-    borderBottomColor: '#E1E5E9',
+    borderBottomColor: colors.border,
     paddingVertical: 12,
   },
   weekHeader: {
@@ -500,13 +769,13 @@ const styles = StyleSheet.create({
   weekDayText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#6C757D',
+    color: colors.textMuted,
     marginBottom: 2,
   },
   weekDayNumber: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#212529',
+    color: colors.text,
   },
   scrollView: {
     flex: 1,
@@ -519,20 +788,20 @@ const styles = StyleSheet.create({
   },
   timeColumn: {
     width: 45,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderRightWidth: 1,
-    borderRightColor: '#E1E5E9',
+    borderRightColor: colors.border,
   },
   timeSlot: {
     height: HOUR_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#E1E5E9',
+    borderBottomColor: colors.border,
   },
   timeLabel: {
     fontSize: 11,
-    color: '#6C757D',
+    color: colors.textMuted,
     fontWeight: '500',
   },
   daysScrollView: {
@@ -544,7 +813,9 @@ const styles = StyleSheet.create({
   dayColumn: {
     width: (screenWidth - 60) / 7, // Match dayColumn width
     borderRightWidth: 1,
-    borderRightColor: '#E1E5E9',
+    borderRightColor: colors.border,
+    // Same as weekend columns — weekdays were previously transparent / darker
+    backgroundColor: colors.surfaceElevated,
   },
   monthContainer: {
     flex: 1,
@@ -556,7 +827,7 @@ const styles = StyleSheet.create({
   monthWeekHeader: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#E1E5E9',
+    borderBottomColor: colors.border,
     paddingBottom: 8,
     marginBottom: 8,
   },
@@ -567,30 +838,142 @@ const styles = StyleSheet.create({
   monthWeekDayText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6C757D',
+    color: colors.textMuted,
   },
   monthGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    overflow: 'hidden', // Hide any overflow rows
+    overflow: 'hidden',
+  },
+  monthWeekBlock: {
+    width: '100%',
+    position: 'relative',
+  },
+  monthGridRow: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+  },
+  monthSpanOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 3,
+  },
+  monthSpanBar: {
+    position: 'absolute',
+    height: MONTH_TRIP_BAR_H,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+  },
+  monthSpanBarText: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  monthSpanOverflowBar: {
+    position: 'absolute',
+    left: '1%',
+    width: '98%',
+    height: MONTH_TRIP_BAR_H,
+    borderRadius: 4,
+    backgroundColor: colors.textMuted,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+  },
+  monthSpanOverflowBarText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.background,
+    textAlign: 'center',
+  },
+  overflowModalOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  overflowModalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '70%',
+  },
+  overflowModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  overflowModalList: {
+    maxHeight: 320,
+  },
+  overflowModalRow: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  overflowModalRowTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  overflowModalRowSub: {
+    fontSize: 13,
+    color: colors.textMuted,
+    marginTop: 4,
+  },
+  overflowModalClose: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  overflowModalCloseText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  weekTripStrip: {
+    flexDirection: 'row',
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  weekTripStripInner: {
+    flex: 1,
+    position: 'relative',
+    marginRight: 4,
+  },
+  weekTripBar: {
+    position: 'absolute',
+    height: 18,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+  },
+  weekTripBarText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   monthDayCell: {
     width: (screenWidth - 33) / 7,
     // Height is set dynamically based on number of rows needed
     borderWidth: 1,
-    borderColor: '#E1E5E9',
+    borderColor: colors.border,
     padding: 4,
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
   },
   monthDayCellOtherMonth: {
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     opacity: 0.5,
   },
   monthDayCellToday: {
-    backgroundColor: '#FFF3CD',
-    borderColor: '#FFC107',
+    backgroundColor: colors.primaryMuted,
+    borderColor: colors.primary,
     borderWidth: 2,
   },
   monthDayCellWithWorkouts: {
@@ -598,15 +981,16 @@ const styles = StyleSheet.create({
   },
   monthDayNumber: {
     fontSize: 14,
+    lineHeight: MONTH_DAY_NUM_LINE_H,
     fontWeight: '500',
-    color: '#212529',
+    color: colors.text,
   },
   monthDayNumberOtherMonth: {
-    color: '#ADB5BD',
+    color: colors.textFaded,
   },
   monthDayNumberToday: {
     fontWeight: '700',
-    color: '#856404',
+    color: colors.primary,
   },
   monthDayWorkoutsContainer: {
     width: '100%',
@@ -626,14 +1010,14 @@ const styles = StyleSheet.create({
   monthDayWorkoutSlotText: {
     fontSize: 8,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: colors.text,
     lineHeight: 12,
   },
   monthDayWorkoutMore: {
     width: '100%',
     height: 14,
     borderRadius: 3,
-    backgroundColor: '#6C757D',
+    backgroundColor: colors.textMuted,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 1,
@@ -641,26 +1025,26 @@ const styles = StyleSheet.create({
   monthDayWorkoutMoreText: {
     fontSize: 8,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: colors.text,
   },
   todayColumn: {
-    backgroundColor: '#FFF3CD', // Light yellow for today
+    backgroundColor: colors.primaryMuted,
   },
   workoutDayColumn: {
-    backgroundColor: '#D1ECF1', // Light blue for days with workouts
+    backgroundColor: colors.surfaceElevated,
   },
   weekendColumn: {
-    backgroundColor: '#F8F9FA', // Light gray for weekends
+    backgroundColor: colors.surfaceElevated,
   },
   pastDayColumn: {
     opacity: 0.6,
   },
   todayText: {
-    color: '#856404',
+    color: colors.primary,
     fontWeight: '700',
   },
   weekendText: {
-    color: '#6C757D',
+    color: colors.textMuted,
   },
   dayContent: {
     position: 'relative',
@@ -669,12 +1053,12 @@ const styles = StyleSheet.create({
   hourSlot: {
     height: HOUR_HEIGHT,
     borderBottomWidth: 1,
-    borderBottomColor: '#E1E5E9',
+    borderBottomColor: colors.border,
   },
   timeSlotButton: {
     flex: 1,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#F1F3F4',
+    borderBottomColor: colors.border,
   },
   workoutBlock: {
     position: 'absolute',
@@ -697,34 +1081,37 @@ const styles = StyleSheet.create({
     borderColor: '#28A745',
   },
   limitWorkout: {
-    backgroundColor: '#E74C3C', // Max strength / recruitment
+    backgroundColor: colors.workoutTypes.limit, // Max strength / recruitment
   },
   powerWorkout: {
-    backgroundColor: '#F39C12', // Dynamic, explosive
+    backgroundColor: colors.workoutTypes.power, // Dynamic, explosive
   },
   enduranceWorkout: {
-    backgroundColor: '#D35400', // PE + aerobic power
+    backgroundColor: colors.workoutTypes.endurance, // PE + aerobic power
   },
   techniqueWorkout: {
-    backgroundColor: '#3498DB', // Movement, footwork, skills
+    backgroundColor: colors.workoutTypes.technique, // Movement, footwork, skills
   },
   volumeWorkout: {
-    backgroundColor: '#27AE60', // ARC, base building
+    backgroundColor: colors.workoutTypes.volume, // ARC, base building
   },
   projectingWorkout: {
-    backgroundColor: '#8E44AD', // Performance, tactics
+    backgroundColor: colors.workoutTypes.projecting, // Performance, tactics
   },
   recoveryWorkout: {
-    backgroundColor: '#95A5A6', // Mobility, yoga, prehab
+    backgroundColor: colors.workoutTypes.recovery, // Mobility, yoga, prehab
   },
   cardioWorkout: {
-    backgroundColor: '#96CEB4', // Aerobic endurance
+    backgroundColor: colors.workoutTypes.cardio, // Aerobic endurance
   },
   customWorkout: {
-    backgroundColor: '#FECA57',
+    backgroundColor: colors.workoutTypes.volume,
   },
   tripBlock: {
-    backgroundColor: '#17A2B8', // Trip / performance window
+    backgroundColor: colors.workoutTypes.cardio, // Trip / performance window
+  },
+  myTripBlock: {
+    backgroundColor: colors.workoutTypes.projecting,
   },
   workoutContent: {
     flexDirection: 'row',

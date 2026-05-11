@@ -18,6 +18,7 @@ import BelayerRequestModal from '../components/BelayerRequestModal';
 import AreaFeed from '../components/AreaFeed';
 import { GroupsStackParamList } from '../types';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { colors } from '../theme/colors';
 
 type AreaFeedNav = StackNavigationProp<GroupsStackParamList, 'AreaFeed'>;
 
@@ -139,8 +140,9 @@ const AreaFeedScreen: React.FC = () => {
         {/* Post Request Button */}
         <View style={styles.actionBar}>
           <Button
-            title="Post Belayer Request"
+            title="Looking for a Partner"
             onPress={() => setShowBelayerRequestModal(true)}
+            disabled={!selectedGym}
             style={styles.postButton}
           />
         </View>
@@ -166,6 +168,8 @@ const AreaFeedScreen: React.FC = () => {
         visible={showBelayerRequestModal}
         onClose={() => setShowBelayerRequestModal(false)}
         onSuccess={() => setShowBelayerRequestModal(false)}
+        initialGymId={selectedGym?.id}
+        contextName={selectedGym?.name}
       />
     </View>
   );
@@ -182,9 +186,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   backButton: {
     padding: 4,
@@ -201,9 +205,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   selectorSection: {
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
     paddingVertical: 12,
   },
   sectionRow: {
@@ -283,9 +287,9 @@ const styles = StyleSheet.create({
   },
   actionBar: {
     padding: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   postButton: {
     marginBottom: 0,

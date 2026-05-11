@@ -21,6 +21,7 @@ import { useAuth } from '../context/AuthContext';
 import { ChatMessage } from '../types';
 import { supabase } from '../services/supabase';
 import BelayerRequestCard from '../components/BelayerRequestCard';
+import { colors } from '../theme/colors';
 
 type GroupChatRouteParams = {
   GroupChat: {
@@ -332,8 +333,6 @@ const GroupChatScreen: React.FC = () => {
             scheduledTime={item.metadata.scheduledTime}
             gymName={item.metadata.gymName}
             cragName={item.metadata.cragName}
-            targetRoute={item.metadata.targetRoute}
-            targetGrade={item.metadata.targetGrade}
           />
         </View>
       );
@@ -381,13 +380,13 @@ const GroupChatScreen: React.FC = () => {
           )}
           {item.messageType === 'video' && item.metadata?.videoUrl && (
             <View style={styles.videoContainer}>
-              <Ionicons name="videocam" size={24} color="#007AFF" />
+              <Ionicons name="videocam" size={24} color={colors.primary} />
               <Text style={styles.videoText}>Video</Text>
             </View>
           )}
           {item.messageType === 'workout-share' && (
             <View style={styles.workoutShareContainer}>
-              <Ionicons name="fitness" size={20} color="#007AFF" />
+              <Ionicons name="fitness" size={20} color={colors.primary} />
               <Text style={styles.workoutShareText}>
                 {item.metadata?.workoutTitle || 'Workout'}
               </Text>
@@ -407,7 +406,7 @@ const GroupChatScreen: React.FC = () => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -429,17 +428,17 @@ const GroupChatScreen: React.FC = () => {
       />
       <View style={styles.inputContainer}>
         <TouchableOpacity style={styles.mediaButton} onPress={handlePickImage}>
-          <Ionicons name="image-outline" size={24} color="#007AFF" />
+          <Ionicons name="image-outline" size={24} color={colors.secondary} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.mediaButton} onPress={handlePickVideo}>
-          <Ionicons name="videocam-outline" size={24} color="#007AFF" />
+          <Ionicons name="videocam-outline" size={24} color={colors.secondary} />
         </TouchableOpacity>
         <TextInput
           style={styles.textInput}
           value={messageText}
           onChangeText={setMessageText}
           placeholder="Type a message..."
-          placeholderTextColor="#8E8E93"
+          placeholderTextColor={colors.textSecondary}
           multiline
           maxLength={1000}
         />
@@ -449,9 +448,9 @@ const GroupChatScreen: React.FC = () => {
           disabled={!messageText.trim() || sending}
         >
           {sending ? (
-            <ActivityIndicator size="small" color="white" />
+            <ActivityIndicator size="small" color={colors.text} />
           ) : (
-            <Ionicons name="send" size={20} color="white" />
+            <Ionicons name="send" size={20} color={colors.text} />
           )}
         </TouchableOpacity>
       </View>
@@ -462,13 +461,13 @@ const GroupChatScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   messagesList: {
     padding: 16,
@@ -497,12 +496,12 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    color: 'white',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -512,34 +511,34 @@ const styles = StyleSheet.create({
     borderRadius: 18,
   },
   ownMessageBubble: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primaryMuted,
     borderBottomRightRadius: 4,
   },
   otherMessageBubble: {
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomLeftRadius: 4,
   },
   senderName: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#007AFF',
+    color: colors.primary,
     marginBottom: 4,
   },
   messageText: {
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
     lineHeight: 20,
   },
   ownMessageText: {
-    color: 'white',
+    color: colors.text,
   },
   messageTime: {
     fontSize: 11,
-    color: '#8E8E93',
+    color: colors.textSecondary,
     marginTop: 4,
   },
   ownMessageTime: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: colors.textMuted,
   },
   messageImage: {
     width: 200,
@@ -551,28 +550,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   videoText: {
     marginLeft: 8,
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.text,
     fontWeight: '500',
   },
   workoutShareContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 8,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   workoutShareText: {
     marginLeft: 8,
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '500',
   },
   belayerRequestContainer: {
@@ -585,16 +588,16 @@ const styles = StyleSheet.create({
   },
   systemMessageText: {
     fontSize: 12,
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontStyle: 'italic',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     padding: 12,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E7',
+    borderTopColor: colors.border,
     paddingBottom: Platform.OS === 'ios' ? 20 : 12,
   },
   mediaButton: {
@@ -606,22 +609,24 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
     borderRadius: 20,
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
   },
   sendButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.secondary,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
   },
   sendButtonDisabled: {
-    backgroundColor: '#C7C7CC',
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
 });
 

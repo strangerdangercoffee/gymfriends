@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   StyleSheet,
@@ -17,6 +18,7 @@ import WorkoutHistoryModal from '../components/WorkoutHistoryModal';
 import WorkoutInvitationModal from '../components/WorkoutInvitationModal';
 import WorkoutBailModal from '../components/WorkoutBailModal';
 import { getCalendarView } from '../utils/calendarUtils';
+import { colors } from '../theme/colors';
 
 type ScheduleScreenNavigationProp = StackNavigationProp<ScheduleStackParamList, 'ScheduleMain'>;
 
@@ -46,14 +48,20 @@ const ScheduleScreen: React.FC = () => {
   const { user } = useAuth();
   const [userTrips, setUserTrips] = useState<UserAreaPlan[]>([]);
   
-  useEffect(() => {
+  const loadUserTrips = useCallback(() => {
     if (!user?.id) return;
-    let cancelled = false;
-    userAreaPlansApi.getByUser(user.id).then((plans) => {
-      if (!cancelled) setUserTrips(plans);
-    }).catch(() => { if (!cancelled) setUserTrips([]); });
-    return () => { cancelled = true; };
+    userAreaPlansApi.getByUser(user.id).then(setUserTrips).catch(() => setUserTrips([]));
   }, [user?.id]);
+
+  useEffect(() => {
+    loadUserTrips();
+  }, [loadUserTrips]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUserTrips();
+    }, [loadUserTrips])
+  );
 
   // Calendar state
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -151,34 +159,25 @@ const ScheduleScreen: React.FC = () => {
       }));
   }, [workoutInvitations]);
 
-  // Convert user trips to calendar blocks (one per day of each trip) for performance-window display
+  // One spanning block per trip (area name, full date range)
   const tripWorkouts = useMemo((): WorkoutSession[] => {
-    const sessions: WorkoutSession[] = [];
-    const areaName = (areaId: string) => climbingAreas.find((a) => a.id === areaId)?.name ?? 'Area';
-    for (const plan of userTrips) {
-      const start = new Date(plan.startDate + 'T12:00:00');
-      const end = new Date(plan.endDate + 'T12:00:00');
-      const title = `Trip: ${areaName(plan.areaId)}`;
-      for (let t = start.getTime(); t <= end.getTime(); t += 24 * 60 * 60 * 1000) {
-        const d = new Date(t);
-        const dateStr = d.toISOString().slice(0, 10);
-        sessions.push({
-          id: `trip-${plan.id}-${dateStr}`,
-          startTime: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 8, 0),
-          endTime: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 9, 0),
-          workoutType: 'recovery',
-          climbingType: 'any',
-          title,
-          notes: plan.notes,
-          isRecurring: false,
-          gymId: undefined,
-          status: 'planned',
-          createdAt: plan.createdAt,
-          updatedAt: plan.updatedAt,
-        });
-      }
-    }
-    return sessions;
+    const resolveArea = (areaId: string) =>
+      climbingAreas.find((a) => a.id === areaId)?.name ?? 'Area';
+    return userTrips.map((plan) => ({
+      id: `trip-span-${plan.id}`,
+      startTime: new Date(plan.startDate + 'T12:00:00'),
+      endTime: new Date(plan.endDate + 'T12:00:00'),
+      spanningEndDate: plan.endDate,
+      workoutType: 'recovery' as const,
+      climbingType: 'any' as const,
+      title: resolveArea(plan.areaId),
+      notes: plan.notes,
+      isRecurring: false,
+      gymId: undefined,
+      status: 'planned' as const,
+      createdAt: plan.createdAt,
+      updatedAt: plan.updatedAt,
+    }));
   }, [userTrips, climbingAreas]);
   
   // Combine planned workouts, completed workouts, invitation workouts, and trip blocks
@@ -200,9 +199,25 @@ const ScheduleScreen: React.FC = () => {
 
   // Handle workout press
   const handleWorkoutPress = (workout: WorkoutSession) => {
-    // Trip block (performance window) - show info only, no edit
-    if (workout.id.startsWith('trip-')) {
-      Alert.alert(workout.title, workout.notes ? `Performance window\n\n${workout.notes}` : 'Performance window — trip planned.');
+    // Trip / area plan — show info only
+    if (workout.spanningEndDate || workout.id.startsWith('trip-span-')) {
+      const start = workout.startTime.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      const end = workout.spanningEndDate
+        ? new Date(workout.spanningEndDate + 'T12:00:00').toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })
+        : start;
+      const range = start === end ? start : `${start} – ${end}`;
+      Alert.alert(
+        workout.title,
+        [workout.notes, `Trip: ${range}`].filter(Boolean).join('\n\n')
+      );
       return;
     }
     // If it's an invitation workout, show invitation modal
@@ -556,7 +571,7 @@ const ScheduleScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
 });
 

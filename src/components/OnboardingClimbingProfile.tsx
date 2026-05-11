@@ -14,6 +14,10 @@ import { RopedGradeSystem, BoulderingGradeSystem } from '../utils/climbingGrades
 import Card from './Card';
 import Button from './Button';
 import GradePicker from './GradePicker';
+import { colors } from '../theme/colors';
+
+// Visible off-state track on the dark background
+const SWITCH_OFF_TRACK = 'rgba(250, 237, 202, 0.2)';
 
 interface OnboardingClimbingProfileProps {
   onComplete: () => void;
@@ -27,7 +31,6 @@ const OnboardingClimbingProfile: React.FC<OnboardingClimbingProfileProps> = ({
   const { user } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
 
-  // Basic profile state
   const [leadClimbing, setLeadClimbing] = useState(false);
   const [leadGradeSystem, setLeadGradeSystem] = useState<RopedGradeSystem>('yds');
   const [leadGradeMin, setLeadGradeMin] = useState('');
@@ -48,7 +51,6 @@ const OnboardingClimbingProfile: React.FC<OnboardingClimbingProfileProps> = ({
 
   const handleSave = async () => {
     if (!user?.id) return;
-
     setIsSaving(true);
     try {
       await climbingProfileApi.createOrUpdateClimbingProfile(user.id, {
@@ -73,7 +75,6 @@ const OnboardingClimbingProfile: React.FC<OnboardingClimbingProfileProps> = ({
       onComplete();
     } catch (error) {
       console.error('Error saving climbing profile:', error);
-      // Still complete onboarding even if profile save fails
       onComplete();
     } finally {
       setIsSaving(false);
@@ -81,6 +82,27 @@ const OnboardingClimbingProfile: React.FC<OnboardingClimbingProfileProps> = ({
   };
 
   const hasAnySelection = leadClimbing || topRope || bouldering || traditionalClimbing;
+
+  const renderGradeSystemToggle = (
+    systems: readonly string[],
+    active: string,
+    onPress: (sys: any) => void,
+    labels: Record<string, string>
+  ) => (
+    <View style={styles.gradeSystemRow}>
+      {systems.map((sys) => (
+        <TouchableOpacity
+          key={sys}
+          style={[styles.gradeSystemBtn, active === sys && styles.gradeSystemBtnActive]}
+          onPress={() => onPress(sys)}
+        >
+          <Text style={[styles.gradeSystemBtnText, active === sys && styles.gradeSystemBtnTextActive]}>
+            {labels[sys] ?? sys}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -91,257 +113,166 @@ const OnboardingClimbingProfile: React.FC<OnboardingClimbingProfileProps> = ({
       >
         <View style={styles.header}>
           <View style={styles.iconContainer}>
-            <Ionicons name="trending-up" size={60} color="#007AFF" />
+            <Ionicons name="trending-up" size={48} color={colors.primary} />
           </View>
           <Text style={styles.title}>Climbing Profile</Text>
           <Text style={styles.description}>
-            Tell us about your climbing preferences. You can add more details later!
+            Tell us about your climbing style. You can add more details later!
           </Text>
         </View>
 
         {/* Climbing Types */}
         <Card style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>What do you climb?</Text>
-          <Text style={styles.sectionSubtitle}>
-            Select all that apply
-          </Text>
+          <Text style={styles.sectionSubtitle}>Select all that apply</Text>
 
-          {/* 1. Top Rope */}
-          <View style={styles.optionRow}>
+          {/* Top Rope */}
+          <TouchableOpacity style={styles.optionRow} onPress={() => setTopRope(v => !v)} activeOpacity={0.7}>
             <View style={styles.optionInfo}>
-              <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
-                <Ionicons name="lock-closed" size={24} color="#34C759" />
+              <View style={[styles.optionIcon, { backgroundColor: topRope ? 'rgba(63, 245, 212, 0.2)' : 'rgba(63, 245, 212, 0.08)' }]}>
+                <Ionicons name="lock-closed" size={22} color="#3FF5D4" />
               </View>
               <View style={styles.optionText}>
                 <Text style={styles.optionTitle}>Top Rope</Text>
-                <Text style={styles.optionDescription}>
-                  Top roping the world
-                </Text>
+                <Text style={styles.optionDescription}>Top roping the world</Text>
               </View>
             </View>
             <Switch
               value={topRope}
               onValueChange={setTopRope}
-              trackColor={{ false: '#E5E5E7', true: '#34C759' }}
-              thumbColor="white"
+              trackColor={{ false: SWITCH_OFF_TRACK, true: '#3FF5D4' }}
+              thumbColor={topRope ? colors.background : colors.text}
             />
-          </View>
+          </TouchableOpacity>
           {topRope && (
             <View style={styles.gradeSection}>
               <Text style={styles.gradeLabel}>Grade range</Text>
-              <View style={styles.gradeSystemRow}>
-                {(['yds', 'french', 'aus'] as const).map((sys) => (
-                  <TouchableOpacity
-                    key={sys}
-                    style={[styles.gradeSystemBtn, topRopeGradeSystem === sys && styles.gradeSystemBtnActive]}
-                    onPress={() => { setTopRopeGradeSystem(sys); setTopRopeGradeMin(''); setTopRopeGradeMax(''); }}
-                  >
-                    <Text style={[styles.gradeSystemBtnText, topRopeGradeSystem === sys && styles.gradeSystemBtnTextActive]}>
-                      {sys === 'yds' ? 'YDS' : sys === 'french' ? 'French' : 'AUS'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {renderGradeSystemToggle(
+                ['yds', 'french', 'aus'],
+                topRopeGradeSystem,
+                (sys) => { setTopRopeGradeSystem(sys); setTopRopeGradeMin(''); setTopRopeGradeMax(''); },
+                { yds: 'YDS', french: 'French', aus: 'AUS' }
+              )}
               <View style={styles.gradeRow}>
-                <GradePicker
-                  value={topRopeGradeMin}
-                  onValueChange={setTopRopeGradeMin}
-                  system={topRopeGradeSystem}
-                  placeholder="Max onsight"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={topRopeGradeMin} onValueChange={setTopRopeGradeMin} system={topRopeGradeSystem} placeholder="Max onsight" style={styles.gradeInput} />
                 <Text style={styles.gradeSeparator}>–</Text>
-                <GradePicker
-                  value={topRopeGradeMax}
-                  onValueChange={setTopRopeGradeMax}
-                  system={topRopeGradeSystem}
-                  placeholder="Max redpoint"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={topRopeGradeMax} onValueChange={setTopRopeGradeMax} system={topRopeGradeSystem} placeholder="Max redpoint" style={styles.gradeInput} />
               </View>
             </View>
           )}
 
-          {/* 2. Lead Climbing */}
-          <View style={styles.optionRow}>
+          {/* Lead Climbing */}
+          <TouchableOpacity style={styles.optionRow} onPress={() => setLeadClimbing(v => !v)} activeOpacity={0.7}>
             <View style={styles.optionInfo}>
-              <View style={[styles.optionIcon, { backgroundColor: '#E3F2FD' }]}>
-                <Ionicons name="arrow-up-circle" size={24} color="#007AFF" />
+              <View style={[styles.optionIcon, { backgroundColor: leadClimbing ? 'rgba(63, 168, 245, 0.2)' : 'rgba(63, 168, 245, 0.08)' }]}>
+                <Ionicons name="arrow-up-circle" size={22} color="#3FA8F5" />
               </View>
               <View style={styles.optionText}>
                 <Text style={styles.optionTitle}>Lead Climbing</Text>
-                <Text style={styles.optionDescription}>
-                  Clipping bolts
-                </Text>
+                <Text style={styles.optionDescription}>Clipping bolts</Text>
               </View>
             </View>
             <Switch
               value={leadClimbing}
               onValueChange={setLeadClimbing}
-              trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-              thumbColor="white"
+              trackColor={{ false: SWITCH_OFF_TRACK, true: '#3FA8F5' }}
+              thumbColor={leadClimbing ? colors.background : colors.text}
             />
-          </View>
+          </TouchableOpacity>
           {leadClimbing && (
             <View style={styles.gradeSection}>
               <Text style={styles.gradeLabel}>Grade range</Text>
-              <View style={styles.gradeSystemRow}>
-                {(['yds', 'french', 'aus'] as const).map((sys) => (
-                  <TouchableOpacity
-                    key={sys}
-                    style={[styles.gradeSystemBtn, leadGradeSystem === sys && styles.gradeSystemBtnActive]}
-                    onPress={() => { setLeadGradeSystem(sys); setLeadGradeMin(''); setLeadGradeMax(''); }}
-                  >
-                    <Text style={[styles.gradeSystemBtnText, leadGradeSystem === sys && styles.gradeSystemBtnTextActive]}>
-                      {sys === 'yds' ? 'YDS' : sys === 'french' ? 'French' : 'AUS'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {renderGradeSystemToggle(
+                ['yds', 'french', 'aus'],
+                leadGradeSystem,
+                (sys) => { setLeadGradeSystem(sys); setLeadGradeMin(''); setLeadGradeMax(''); },
+                { yds: 'YDS', french: 'French', aus: 'AUS' }
+              )}
               <View style={styles.gradeRow}>
-                <GradePicker
-                  value={leadGradeMin}
-                  onValueChange={setLeadGradeMin}
-                  system={leadGradeSystem}
-                  placeholder="Max onsight"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={leadGradeMin} onValueChange={setLeadGradeMin} system={leadGradeSystem} placeholder="Max onsight" style={styles.gradeInput} />
                 <Text style={styles.gradeSeparator}>–</Text>
-                <GradePicker
-                  value={leadGradeMax}
-                  onValueChange={setLeadGradeMax}
-                  system={leadGradeSystem}
-                  placeholder="Max redpoint"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={leadGradeMax} onValueChange={setLeadGradeMax} system={leadGradeSystem} placeholder="Max redpoint" style={styles.gradeInput} />
               </View>
             </View>
           )}
 
-          {/* 3. Bouldering */}
-          <View style={styles.optionRow}>
+          {/* Bouldering */}
+          <TouchableOpacity style={styles.optionRow} onPress={() => setBouldering(v => !v)} activeOpacity={0.7}>
             <View style={styles.optionInfo}>
-              <View style={[styles.optionIcon, { backgroundColor: '#FFF3E0' }]}>
-                <Ionicons name="cube" size={24} color="#FF9500" />
+              <View style={[styles.optionIcon, { backgroundColor: bouldering ? 'rgba(245, 63, 110, 0.2)' : 'rgba(245, 63, 110, 0.08)' }]}>
+                <Ionicons name="cube" size={22} color="#F53F6E" />
               </View>
               <View style={styles.optionText}>
                 <Text style={styles.optionTitle}>Bouldering</Text>
-                <Text style={styles.optionDescription}>
-                  Pebble wrestling
-                </Text>
+                <Text style={styles.optionDescription}>Pebble wrestling</Text>
               </View>
             </View>
             <Switch
               value={bouldering}
               onValueChange={setBouldering}
-              trackColor={{ false: '#E5E5E7', true: '#FF9500' }}
-              thumbColor="white"
+              trackColor={{ false: SWITCH_OFF_TRACK, true: '#F53F6E' }}
+              thumbColor={bouldering ? colors.background : colors.text}
             />
-          </View>
+          </TouchableOpacity>
           {bouldering && (
             <View style={styles.gradeSection}>
               <Text style={styles.gradeLabel}>Grades</Text>
-              <View style={styles.gradeSystemRow}>
-                <TouchableOpacity
-                  style={[styles.gradeSystemBtn, boulderGradeSystem === 'v_scale' && styles.gradeSystemBtnActive]}
-                  onPress={() => { setBoulderGradeSystem('v_scale'); setBoulderMaxFlash(''); setBoulderMaxSend(''); }}
-                >
-                  <Text style={[styles.gradeSystemBtnText, boulderGradeSystem === 'v_scale' && styles.gradeSystemBtnTextActive]}>
-                    V-Scale
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.gradeSystemBtn, boulderGradeSystem === 'font' && styles.gradeSystemBtnActive]}
-                  onPress={() => { setBoulderGradeSystem('font'); setBoulderMaxFlash(''); setBoulderMaxSend(''); }}
-                >
-                  <Text style={[styles.gradeSystemBtnText, boulderGradeSystem === 'font' && styles.gradeSystemBtnTextActive]}>
-                    Font
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              {renderGradeSystemToggle(
+                ['v_scale', 'font'],
+                boulderGradeSystem,
+                (sys) => { setBoulderGradeSystem(sys); setBoulderMaxFlash(''); setBoulderMaxSend(''); },
+                { v_scale: 'V-Scale', font: 'Font' }
+              )}
               <View style={styles.gradeRow}>
-                <GradePicker
-                  value={boulderMaxFlash}
-                  onValueChange={setBoulderMaxFlash}
-                  system={boulderGradeSystem}
-                  placeholder="Max flash"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={boulderMaxFlash} onValueChange={setBoulderMaxFlash} system={boulderGradeSystem} placeholder="Max flash" style={styles.gradeInput} />
                 <Text style={styles.gradeSeparator}>–</Text>
-                <GradePicker
-                  value={boulderMaxSend}
-                  onValueChange={setBoulderMaxSend}
-                  system={boulderGradeSystem}
-                  placeholder="Max send"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={boulderMaxSend} onValueChange={setBoulderMaxSend} system={boulderGradeSystem} placeholder="Max send" style={styles.gradeInput} />
               </View>
             </View>
           )}
 
-          {/* 4. Trad Climbing */}
-          <View style={styles.optionRow}>
+          {/* Trad */}
+          <TouchableOpacity style={[styles.optionRow, styles.optionRowLast]} onPress={() => setTraditionalClimbing(v => !v)} activeOpacity={0.7}>
             <View style={styles.optionInfo}>
-              <View style={[styles.optionIcon, { backgroundColor: '#FFF8E1' }]}>
-                <Ionicons name="shield-checkmark" size={24} color="#FFA000" />
+              <View style={[styles.optionIcon, { backgroundColor: traditionalClimbing ? 'rgba(160, 63, 245, 0.2)' : 'rgba(160, 63, 245, 0.08)' }]}>
+                <Ionicons name="shield-checkmark" size={22} color="#A03FF5" />
               </View>
               <View style={styles.optionText}>
                 <Text style={styles.optionTitle}>Trad Climbing</Text>
-                <Text style={styles.optionDescription}>
-                  Plugging gear
-                </Text>
+                <Text style={styles.optionDescription}>Plugging gear</Text>
               </View>
             </View>
             <Switch
               value={traditionalClimbing}
               onValueChange={setTraditionalClimbing}
-              trackColor={{ false: '#E5E5E7', true: '#FFA000' }}
-              thumbColor="white"
+              trackColor={{ false: SWITCH_OFF_TRACK, true: '#A03FF5' }}
+              thumbColor={traditionalClimbing ? colors.background : colors.text}
             />
-          </View>
+          </TouchableOpacity>
           {traditionalClimbing && (
             <View style={styles.gradeSection}>
               <Text style={styles.gradeLabel}>Grade range</Text>
-              <View style={styles.gradeSystemRow}>
-                {(['yds', 'french', 'aus'] as const).map((sys) => (
-                  <TouchableOpacity
-                    key={sys}
-                    style={[styles.gradeSystemBtn, traditionalGradeSystem === sys && styles.gradeSystemBtnActive]}
-                    onPress={() => { setTraditionalGradeSystem(sys); setTraditionalGradeMin(''); setTraditionalGradeMax(''); }}
-                  >
-                    <Text style={[styles.gradeSystemBtnText, traditionalGradeSystem === sys && styles.gradeSystemBtnTextActive]}>
-                      {sys === 'yds' ? 'YDS' : sys === 'french' ? 'French' : 'AUS'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {renderGradeSystemToggle(
+                ['yds', 'french', 'aus'],
+                traditionalGradeSystem,
+                (sys) => { setTraditionalGradeSystem(sys); setTraditionalGradeMin(''); setTraditionalGradeMax(''); },
+                { yds: 'YDS', french: 'French', aus: 'AUS' }
+              )}
               <View style={styles.gradeRow}>
-                <GradePicker
-                  value={traditionalGradeMin}
-                  onValueChange={setTraditionalGradeMin}
-                  system={traditionalGradeSystem}
-                  placeholder="Max onsight"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={traditionalGradeMin} onValueChange={setTraditionalGradeMin} system={traditionalGradeSystem} placeholder="Max onsight" style={styles.gradeInput} />
                 <Text style={styles.gradeSeparator}>–</Text>
-                <GradePicker
-                  value={traditionalGradeMax}
-                  onValueChange={setTraditionalGradeMax}
-                  system={traditionalGradeSystem}
-                  placeholder="Max redpoint"
-                  style={styles.gradeInput}
-                />
+                <GradePicker value={traditionalGradeMax} onValueChange={setTraditionalGradeMax} system={traditionalGradeSystem} placeholder="Max redpoint" style={styles.gradeInput} />
               </View>
             </View>
           )}
         </Card>
 
-        {/* 5. Open to new partners */}
+        {/* Open to partners */}
         <Card style={styles.sectionCard}>
-          <View style={styles.optionRow}>
+          <TouchableOpacity style={[styles.optionRow, styles.optionRowLast]} onPress={() => setOpenToNewPartners(v => !v)} activeOpacity={0.7}>
             <View style={styles.optionInfo}>
-              <View style={[styles.optionIcon, { backgroundColor: '#F3E5F5' }]}>
-                <Ionicons name="people" size={24} color="#AF52DE" />
+              <View style={[styles.optionIcon, { backgroundColor: openToNewPartners ? 'rgba(245, 200, 63, 0.2)' : 'rgba(245, 200, 63, 0.08)' }]}>
+                <Ionicons name="people" size={22} color="#F5C83F" />
               </View>
               <View style={styles.optionText}>
                 <Text style={styles.optionTitle}>Open to New Partners</Text>
@@ -353,38 +284,33 @@ const OnboardingClimbingProfile: React.FC<OnboardingClimbingProfileProps> = ({
             <Switch
               value={openToNewPartners}
               onValueChange={setOpenToNewPartners}
-              trackColor={{ false: '#E5E5E7', true: '#AF52DE' }}
-              thumbColor="white"
+              trackColor={{ false: SWITCH_OFF_TRACK, true: '#F5C83F' }}
+              thumbColor={openToNewPartners ? colors.background : colors.text}
             />
-          </View>
+          </TouchableOpacity>
         </Card>
 
-        {/* Info Card */}
-        <Card style={styles.infoCard}>
-          <View style={styles.infoHeader}>
-            <Ionicons name="information-circle-outline" size={20} color="#007AFF" />
-            <Text style={styles.infoTitle}>You can add more details later</Text>
-          </View>
+        <View style={styles.infoCard}>
+          <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
           <Text style={styles.infoText}>
-            Add grades, certifications, and more in your Profile anytime.
+            You can add grades, certifications and more from your Profile anytime.
           </Text>
-        </Card>
+        </View>
       </ScrollView>
 
-      {/* Footer Buttons */}
       <View style={styles.footer}>
         <Button
-          title="Complete Later"
+          title="Skip for Now"
           variant="outline"
           onPress={onSkip}
-          style={styles.skipButton}
+          style={styles.footerBtn}
         />
         <Button
-          title={hasAnySelection ? "Continue" : "Skip for Now"}
+          title={isSaving ? 'Saving…' : 'Continue'}
           onPress={handleSave}
           loading={isSaving}
-          variant={hasAnySelection ? 'primary' : 'outline'}
-          style={styles.continueButton}
+          variant={hasAnySelection ? 'primary' : 'secondary'}
+          style={styles.footerBtn}
         />
       </View>
     </View>
@@ -394,7 +320,7 @@ const OnboardingClimbingProfile: React.FC<OnboardingClimbingProfileProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
@@ -405,7 +331,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
   },
   iconContainer: {
     marginBottom: 16,
@@ -414,18 +340,18 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.primaryMuted,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     textAlign: 'center',
     marginBottom: 8,
   },
   description: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 22,
     paddingHorizontal: 20,
@@ -437,21 +363,25 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 16,
   },
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F7',
+    borderBottomColor: colors.divider,
+  },
+  optionRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
   },
   optionInfo: {
     flexDirection: 'row',
@@ -459,9 +389,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -472,24 +402,24 @@ const styles = StyleSheet.create({
   optionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
+    color: colors.text,
+    marginBottom: 2,
   },
   optionDescription: {
-    fontSize: 14,
-    color: '#8E8E93',
+    fontSize: 13,
+    color: colors.textMuted,
   },
   gradeSection: {
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: 4,
+    marginBottom: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
+    borderTopColor: colors.divider,
   },
   gradeLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 8,
   },
   gradeSystemRow: {
@@ -503,20 +433,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
-    backgroundColor: '#F9F9F9',
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
     alignItems: 'center',
   },
   gradeSystemBtnActive: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#007AFF',
+    backgroundColor: colors.primaryMuted,
+    borderColor: colors.primaryBorder,
   },
   gradeSystemBtnText: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    color: colors.textMuted,
   },
   gradeSystemBtnTextActive: {
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '600',
   },
   gradeRow: {
@@ -529,28 +459,24 @@ const styles = StyleSheet.create({
   },
   gradeSeparator: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   infoCard: {
-    marginTop: 8,
-    padding: 16,
-    backgroundColor: '#E3F2FD',
-  },
-  infoHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  infoTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#007AFF',
-    marginLeft: 8,
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: 4,
   },
   infoText: {
-    fontSize: 12,
-    color: '#007AFF',
-    lineHeight: 18,
+    flex: 1,
+    fontSize: 13,
+    color: colors.textMuted,
+    lineHeight: 19,
   },
   footer: {
     position: 'absolute',
@@ -559,15 +485,12 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     padding: 20,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E7',
+    borderTopColor: colors.border,
     gap: 12,
   },
-  skipButton: {
-    flex: 1,
-  },
-  continueButton: {
+  footerBtn: {
     flex: 1,
   },
 });

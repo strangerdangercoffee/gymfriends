@@ -156,7 +156,8 @@ export type RootTabParamList = {
 
 export type MapStackParamList = {
   MapMain: undefined;
-  AreaDetail: { areaId: string };
+  AreaDetail: { areaId: string; highlightTripInvitationId?: string };
+  AreaFriendCalendar: { areaId: string; areaName: string };
   GymDetail: { gymId: string };
 };
 
@@ -170,7 +171,8 @@ export type GroupsStackParamList = {
   GroupChat: { groupId: string; groupName: string };
   AreaFeed: undefined;
   AreasMap: undefined;
-  AreaDetail: { areaId: string };
+  AreaDetail: { areaId: string; highlightTripInvitationId?: string };
+  AreaFriendCalendar: { areaId: string; areaName: string };
   GymDetail: { gymId: string };
 };
 
@@ -304,6 +306,8 @@ export interface WorkoutSession {
   id: string;
   startTime: Date;
   endTime: Date;
+  /** YYYY-MM-DD inclusive end date for multi-day trip bars (My Schedule / friend area calendar). */
+  spanningEndDate?: string;
   workoutType: 'limit' | 'power' | 'endurance' | 'technique' | 'volume' | 'projecting' | 'recovery' | 'cardio';
   climbingType: 'lead' | 'top_rope' | 'bouldering' | 'any';
   title: string;
@@ -314,6 +318,8 @@ export interface WorkoutSession {
   status: 'planned' | 'active' | 'completed' | 'cancelled';
   createdAt: string;
   updatedAt: string;
+  /** Friend calendar: user IDs on the same area+date cluster (detail / overflow). */
+  tripClusterMemberIds?: string[];
 }
 
 export interface RecurringPattern {
@@ -377,7 +383,7 @@ export interface LocationContextType {
   isGeofencingActive: boolean;
   startTracking: () => Promise<void>;
   stopTracking: () => void;
-  startGeofencing: (userId: string, followedGyms: Gym[], options?: { userName?: string; followedAreas?: ClimbingArea[]; allClimbingAreas?: ClimbingArea[] }) => Promise<void>;
+  startGeofencing: (userId: string, gymsForProximity: Gym[], options?: { userName?: string; followedAreas?: ClimbingArea[]; allClimbingAreas?: ClimbingArea[] }) => Promise<void>;
   stopGeofencing: () => Promise<void>;
   requestPermissions: () => Promise<boolean>;
   hasPermissions: boolean;

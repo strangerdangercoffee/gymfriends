@@ -74,6 +74,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   }, [user?.privacySettings.autoCheckIn, hasBackgroundPermission, gyms, followedAreas.length, climbingAreas.length]);
 
+  // Keep geofencing gym list in sync when `gyms` refreshes (auto check-in uses all gyms, not only followed).
+  useEffect(() => {
+    if (geofencingActive) {
+      geofencingService.updateGymsForProximity(gyms);
+    }
+  }, [geofencingActive, gyms]);
+
   // Flush offline write queue when app comes to foreground
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -89,10 +96,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const startAutoCheckIn = async () => {
     if (!user) return;
     try {
-      const followedGyms = gyms.filter(gym => user.followedGyms.includes(gym.id));
       const areas = followedAreas.length > 0 ? followedAreas : [];
-      if (followedGyms.length > 0 || areas.length > 0 || climbingAreas.length > 0) {
-        await startGeofencing(user.id, followedGyms, {
+      if (gyms.length > 0 || areas.length > 0 || climbingAreas.length > 0) {
+        await startGeofencing(user.id, gyms, {
           userName: user.name,
           followedAreas: areas,
           allClimbingAreas: climbingAreas,
@@ -461,14 +467,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       await refreshUser();
 
       await refreshData();
-
-      // Update geofencing optimistically (state may not have updated yet)
-      if (user.privacySettings.autoCheckIn && hasBackgroundPermission) {
-        const followedGyms = gyms.filter(g =>
-          user.followedGyms?.includes(g.id) || g.id === gymId
-        );
-        geofencingService.updateFollowedGyms(followedGyms);
-      }
     } catch (error) {
       console.error('Error following gym:', error);
       throw error;
@@ -485,14 +483,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       await refreshUser();
 
       await refreshData();
-
-      // Update geofencing optimistically (state may not have updated yet)
-      if (user.privacySettings.autoCheckIn && hasBackgroundPermission) {
-        const followedGyms = gyms.filter(g =>
-          g.id !== gymId && user.followedGyms?.includes(g.id)
-        );
-        geofencingService.updateFollowedGyms(followedGyms);
-      }
     } catch (error) {
       console.error('Error unfollowing gym:', error);
       throw error;
@@ -695,7 +685,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Get followed gyms
   const followedGyms = useMemo(() => {
     if (!user) return [];
-    return gyms.filter(gym => user.followedGyms.includes(gym.id));
+    const ids = user.followedGyms ?? [];
+    return gyms.filter((gym) => ids.includes(gym.id));
   }, [gyms, user]);
 
   const refreshClimbingAreas = async (): Promise<ClimbingArea[]> => {

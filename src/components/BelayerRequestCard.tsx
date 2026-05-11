@@ -11,8 +11,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { areaFeedApi } from '../services/api';
-import { AreaFeedPost } from '../types';
+import { AreaFeedPost, BelayerRequestResponse } from '../types';
 import Card from './Card';
+import { colors } from '../theme/colors';
+import { getBelayerRequestFeedTitle } from '../utils/belayerRequestTitles';
 
 interface BelayerRequestCardProps {
   postId: string;
@@ -24,8 +26,6 @@ interface BelayerRequestCardProps {
   scheduledTime?: string;
   gymName?: string;
   cragName?: string;
-  targetRoute?: string;
-  targetGrade?: string;
 }
 
 const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
@@ -38,8 +38,6 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
   scheduledTime,
   gymName: metadataGymName,
   cragName: metadataCragName,
-  targetRoute: metadataTargetRoute,
-  targetGrade: metadataTargetGrade,
 }) => {
   const { user } = useAuth();
   const [post, setPost] = useState<AreaFeedPost | null>(null);
@@ -77,7 +75,7 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
         // Check if user has already responded
         if (user?.id && fullPost.availableResponders) {
           const responded = fullPost.availableResponders.some(
-            (r) => r.responderUserId === user.id
+            (r: BelayerRequestResponse) => r.responderUserId === user.id
           );
           setHasResponded(responded);
         }
@@ -124,13 +122,6 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
     }
   };
 
-  const formatClimbingType = (type?: string) => {
-    if (!type || type === 'any') return 'Climbing';
-    return type === 'top_rope' ? 'Top Rope' : 
-           type === 'bouldering' ? 'Bouldering' : 
-           type.charAt(0).toUpperCase() + type.slice(1);
-  };
-
   const formatTime = (timeString?: string) => {
     if (!timeString) return 'Right now';
     const date = new Date(timeString);
@@ -145,15 +136,18 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const requestTypeText = postType === 'rally_pads_request' ? 'Rally Pads' : 'Belayer';
-  const climbingTypeText = formatClimbingType(climbingType);
+  const headline = getBelayerRequestFeedTitle(
+    post?.authorName || senderName,
+    postType,
+    climbingType
+  );
   const timeText = formatTime(scheduledTime);
 
   if (loading) {
     return (
       <Card style={styles.card}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#007AFF" />
+          <ActivityIndicator size="small" color={colors.primary} />
         </View>
       </Card>
     );
@@ -163,47 +157,31 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
     <Card style={styles.card}>
       <View style={styles.header}>
         <View style={styles.iconContainer}>
-          <Ionicons 
-            name={postType === 'rally_pads_request' ? 'people' : 'fitness'} 
-            size={24} 
-            color="#007AFF" 
+          <Ionicons
+            name={postType === 'rally_pads_request' ? 'people' : 'fitness'}
+            size={24}
+            color={colors.primary}
           />
         </View>
         <View style={styles.titleContainer}>
-          <Text style={styles.title}>{requestTypeText} Request</Text>
-          {senderName && (
-            <Text style={styles.senderName}>{senderName}</Text>
-          )}
+          <Text style={styles.title}>{headline}</Text>
         </View>
       </View>
 
       <View style={styles.content}>
         <View style={styles.detailsRow}>
-          <Ionicons name="barbell-outline" size={16} color="#666" />
-          <Text style={styles.detailText}>{climbingTypeText}</Text>
-        </View>
-        {(post?.targetRoute || metadataTargetRoute) && (
-          <View style={styles.detailsRow}>
-            <Ionicons name="map-outline" size={16} color="#666" />
-            <Text style={styles.detailText}>{post?.targetRoute || metadataTargetRoute}</Text>
-            {(post?.targetGrade || metadataTargetGrade) && (
-              <Text style={styles.detailText}> • {post?.targetGrade || metadataTargetGrade}</Text>
-            )}
-          </View>
-        )}
-        <View style={styles.detailsRow}>
-          <Ionicons name="time-outline" size={16} color="#666" />
+          <Ionicons name="time-outline" size={16} color={colors.textMuted} />
           <Text style={styles.detailText}>{timeText}</Text>
         </View>
         {(post?.gymName || metadataGymName) && (
           <View style={styles.detailsRow}>
-            <Ionicons name="location-outline" size={16} color="#666" />
+            <Ionicons name="location-outline" size={16} color={colors.textMuted} />
             <Text style={styles.detailText}>{post?.gymName || metadataGymName}</Text>
           </View>
         )}
         {(post?.cragName || metadataCragName) && (
           <View style={styles.detailsRow}>
-            <Ionicons name="location-outline" size={16} color="#666" />
+            <Ionicons name="location-outline" size={16} color={colors.textMuted} />
             <Text style={styles.detailText}>{post?.cragName || metadataCragName}</Text>
           </View>
         )}
@@ -240,7 +218,7 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
                   <Text style={styles.responderName}>{responder.responderName || 'Unknown'}</Text>
                   {isSelected && (
                     <View style={styles.selectedBadge}>
-                      <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+                      <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                       <Text style={styles.selectedText}>Selected</Text>
                     </View>
                   )}
@@ -252,10 +230,10 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
                     disabled={isSelecting}
                   >
                     {isSelecting ? (
-                      <ActivityIndicator size="small" color="#007AFF" />
+                      <ActivityIndicator size="small" color={colors.secondary} />
                     ) : (
                       <>
-                        <Ionicons name="checkmark" size={16} color="#007AFF" />
+                        <Ionicons name="checkmark" size={16} color={colors.secondary} />
                         <Text style={styles.selectButtonText}>Select</Text>
                       </>
                     )}
@@ -276,13 +254,13 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
             disabled={hasResponded || responding}
           >
             {responding ? (
-              <ActivityIndicator size="small" color="white" />
+              <ActivityIndicator size="small" color={colors.text} />
             ) : (
               <>
                 <Ionicons 
                   name={hasResponded ? 'checkmark-circle' : 'hand-left-outline'} 
                   size={18} 
-                  color="white" 
+                  color={colors.text} 
                 />
                 <Text style={styles.respondButtonText}>
                   {hasResponded ? 'You Responded' : "I'm Free"}
@@ -296,7 +274,7 @@ const BelayerRequestCard: React.FC<BelayerRequestCardProps> = ({
       {/* Show responder count for non-authors */}
       {!isAuthor && post && post.availableResponders && post.availableResponders.length > 0 && (
         <View style={styles.respondersInfo}>
-          <Ionicons name="people" size={14} color="#666" />
+          <Ionicons name="people" size={14} color={colors.textMuted} />
           <Text style={styles.respondersText}>
             {post.availableResponders.length} {post.availableResponders.length === 1 ? 'person' : 'people'} available
           </Text>
@@ -310,9 +288,9 @@ const styles = StyleSheet.create({
   card: {
     marginVertical: 8,
     padding: 16,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
+    borderColor: colors.border,
   },
   loadingContainer: {
     padding: 20,
@@ -327,7 +305,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.primaryMuted,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -338,12 +316,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 2,
   },
   senderName: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
   },
   content: {
     marginBottom: 12,
@@ -356,11 +334,11 @@ const styles = StyleSheet.create({
   },
   detailText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
   },
   description: {
     fontSize: 14,
-    color: '#333',
+    color: colors.textSecondary,
     marginBottom: 12,
     lineHeight: 20,
   },
@@ -377,43 +355,43 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.secondary,
     borderRadius: 8,
   },
   respondButtonDisabled: {
-    backgroundColor: '#34C759',
+    backgroundColor: colors.success,
   },
   respondButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: 'white',
+    color: colors.text,
   },
   detailsButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
+    borderColor: colors.border,
   },
   detailsButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#007AFF',
+    color: colors.secondary,
     marginRight: 4,
   },
   respondersSection: {
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E7',
+    borderTopColor: colors.border,
   },
   respondersSectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: colors.text,
     marginBottom: 12,
   },
   responderItem: {
@@ -422,9 +400,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: colors.background,
     borderRadius: 8,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   responderInfo: {
     flexDirection: 'row',
@@ -441,19 +421,19 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.secondary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   responderAvatarText: {
-    color: 'white',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
   responderName: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#333',
+    color: colors.text,
     flex: 1,
   },
   selectedBadge: {
@@ -463,7 +443,7 @@ const styles = StyleSheet.create({
   },
   selectedText: {
     fontSize: 12,
-    color: '#34C759',
+    color: colors.success,
     fontWeight: '500',
   },
   selectButton: {
@@ -472,15 +452,15 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: 6,
     paddingHorizontal: 12,
-    backgroundColor: 'white',
+    backgroundColor: colors.secondaryMuted,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#007AFF',
+    borderColor: colors.secondaryBorder,
   },
   selectButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#007AFF',
+    color: colors.secondary,
   },
   respondersInfo: {
     flexDirection: 'row',
@@ -488,12 +468,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E7',
+    borderTopColor: colors.border,
     gap: 6,
   },
   respondersText: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textMuted,
   },
 });
 

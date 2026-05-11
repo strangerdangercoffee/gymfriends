@@ -23,6 +23,7 @@ import { ClimbingArea, Gym } from '../types';
 import { GroupsStackParamList, MapStackParamList } from '../types';
 import { getAllPolylines } from '../data/worldBorders';
 import { WORLD_CITIES } from '../data/worldCities';
+import { colors } from '../theme/colors';
 import { StackNavigationProp } from '@react-navigation/stack';
 import {
   GestureDetector,
@@ -43,6 +44,7 @@ const CAMERA_DISTANCE_DEFAULT = 4.5;
 const CAMERA_DISTANCE_MIN = 1.65; // allow zoom in close (globe radius 1.5 → ~0.15 from surface)
 const CAMERA_DISTANCE_MAX = 10;
 const CITIES_ZOOM_THRESHOLD = 2.2; // show city labels when camera distance below this
+const AUTO_ROTATE_ZOOM_THRESHOLD = 3.2; // only auto-rotate when camera is at or beyond this (zoomed out); when zoomed in, keep globe still
 const MAX_CITY_LABELS = 80; // cap visible city labels when zoomed in
 const OVERLAY_UPDATE_EVERY_N_FRAMES = 1; // update overlay every frame for responsive drag/zoom
 // Layout size of the globe view (square)
@@ -346,8 +348,9 @@ const GlobeMapScreen: React.FC = () => {
 
       const timeSinceInteraction = Date.now() - lastInteractionRef.current;
       const isIdle = !isUserInteractingRef.current && timeSinceInteraction > IDLE_TIMEOUT_MS;
+      const isZoomedOut = cameraDistanceRef.current >= AUTO_ROTATE_ZOOM_THRESHOLD;
 
-      if (isIdle) {
+      if (isIdle && isZoomedOut) {
         rotationRef.current.y += AUTO_ROTATE_SPEED;
       } else if (!isUserInteractingRef.current) {
         // Decelerate
@@ -535,7 +538,7 @@ const GlobeMapScreen: React.FC = () => {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#4A9EFF" />
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Loading globe...</Text>
       </View>
     );
@@ -545,13 +548,7 @@ const GlobeMapScreen: React.FC = () => {
     <GestureHandlerRootView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        {navigation.canGoBack() ? (
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={22} color="#00FF41" />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerSpacer} />
-        )}
+        <View style={styles.headerSpacer} />
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>
             {mapMode === 'areas' ? 'CLIMBING AREAS' : 'GYMS'}
@@ -648,8 +645,8 @@ const GlobeMapScreen: React.FC = () => {
                             borderRadius: pinRadius,
                             left: pos.x - pinRadius,
                             top: pos.y - pinRadius,
-                            backgroundColor: hasFriends ? '#00FF41' : '#03A062',
-                            shadowColor: hasFriends ? '#00FF41' : '#03A062',
+                            backgroundColor: hasFriends ? '#F5853F' : '#03A062',
+                            shadowColor: hasFriends ? '#F5853F' : '#03A062',
                             ...(hasFriends && {
                               shadowOpacity: 1,
                               shadowRadius: 12,
@@ -680,13 +677,13 @@ const GlobeMapScreen: React.FC = () => {
             </Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#00FF41' }]} />
+            <View style={[styles.legendDot, { backgroundColor: '#F5853F' }]} />
             <Text style={styles.legendText}>Friends here</Text>
           </View>
         </View>
 
         {/* Hint */}
-        <Text style={styles.hint}>Drag to rotate · Pinch to zoom · Auto-rotates when idle</Text>
+        <Text style={styles.hint}>Drag to rotate · Pinch to zoom · Auto-rotates when zoomed out</Text>
       </View>
 
       {/* Detail modal: area or gym */}
@@ -734,7 +731,7 @@ const GlobeMapScreen: React.FC = () => {
                     onPress={() => handleViewArea(selectedArea.id)}
                   >
                     <Text style={styles.viewButtonText}>View Area</Text>
-                    <Ionicons name="arrow-forward" size={16} color="#fff" />
+                    <Ionicons name="arrow-forward" size={16} color={colors.text} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.cancelButton}
@@ -772,7 +769,7 @@ const GlobeMapScreen: React.FC = () => {
                     onPress={() => handleViewGym(selectedGym.id)}
                   >
                     <Text style={styles.viewButtonText}>View Gym</Text>
-                    <Ionicons name="arrow-forward" size={16} color="#fff" />
+                    <Ionicons name="arrow-forward" size={16} color={colors.text} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.cancelButton}
@@ -840,9 +837,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(3, 160, 98, 0.4)',
   },
   tabActive: {
-    backgroundColor: 'rgba(0, 255, 65, 0.12)',
+    backgroundColor: 'rgba(245, 133, 63, 0.12)',
     borderWidth: 1,
-    borderColor: '#00FF41',
+    borderColor: '#F5853F',
   },
   tabText: {
     fontSize: 14,
@@ -850,12 +847,12 @@ const styles = StyleSheet.create({
     color: 'rgba(3, 160, 98, 0.9)',
   },
   tabTextActive: {
-    color: '#00FF41',
+    color: '#F5853F',
   },
   headerTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#00FF41',
+    color: '#F5853F',
     letterSpacing: 3,
   },
   headerSub: {
@@ -885,7 +882,7 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     borderWidth: 0,
-    borderColor: '#fff',
+    borderColor: colors.border,
     shadowOpacity: 0.9,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
@@ -948,27 +945,27 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
-    color: '#4A9EFF',
+    color: colors.primary,
     letterSpacing: 1,
   },
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: colors.overlay,
   },
   modalContent: {
-    backgroundColor: '#0d1f33',
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 24,
     paddingBottom: 40,
     borderTopWidth: 1,
-    borderColor: 'rgba(74,158,255,0.2)',
+    borderColor: colors.border,
   },
   modalHandle: {
     width: 36,
     height: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: colors.handle,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 20,
@@ -976,12 +973,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#fff',
+    color: colors.text,
     marginBottom: 4,
   },
   modalLocation: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.45)',
+    color: colors.textMuted,
     marginBottom: 16,
     letterSpacing: 0.5,
   },
@@ -989,22 +986,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(52,199,89,0.12)',
+    backgroundColor: colors.successMuted,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(52,199,89,0.25)',
+    borderColor: colors.primaryBorder,
   },
   friendsBadgeText: {
     fontSize: 13,
-    color: '#34C759',
+    color: colors.primary,
     fontWeight: '500',
   },
   noFriends: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
+    color: colors.textFaded,
     marginBottom: 20,
   },
   modalActions: {
@@ -1013,7 +1010,7 @@ const styles = StyleSheet.create({
   },
   viewButton: {
     flex: 1,
-    backgroundColor: '#4A9EFF',
+    backgroundColor: colors.secondary,
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 12,
@@ -1023,7 +1020,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   viewButtonText: {
-    color: '#fff',
+    color: colors.background,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -1032,12 +1029,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: colors.divider,
     justifyContent: 'center',
   },
   cancelButtonText: {
     fontSize: 15,
-    color: 'rgba(255,255,255,0.5)',
+    color: colors.textMuted,
   },
 });
 

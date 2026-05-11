@@ -189,31 +189,29 @@ export class InvitationService {
   }
 
   private async sendInvitationNotification(invitation: FriendInvitation): Promise<void> {
-    // In a real app, you would send an email or SMS notification here
-    // For now, we'll just log it
     if (invitation.invitee_email) {
       console.log(`Invitation sent to ${invitation.invitee_email} from ${invitation.inviter_name}`);
-      // You could integrate with email services like SendGrid, AWS SES, etc.
+      // Email integration (SendGrid, AWS SES, etc.) can be added here
     } else if (invitation.invitee_phone) {
-      console.log(`Invitation sent to ${invitation.invitee_phone} from ${invitation.inviter_name}`);
-      // You could integrate with SMS services like Twilio, AWS SNS, etc.
-      // Example: await this.sendSMS(invitation.invitee_phone, invitation);
+      await this.sendInvitationSms(invitation);
     }
-    
-    // or use Expo's notification system for in-app notifications
   }
 
-  // Placeholder for SMS sending - integrate with Twilio or similar service
-  private async sendSMS(phoneNumber: string, invitation: FriendInvitation): Promise<void> {
-    // TODO: Integrate with SMS service (e.g., Twilio)
-    // Example implementation:
-    // const message = `${invitation.inviter_name} invited you to join Gym Friends! Sign up at [app link]`;
-    // await twilioClient.messages.create({
-    //   body: message,
-    //   to: phoneNumber,
-    //   from: process.env.TWILIO_PHONE_NUMBER,
-    // });
-    console.log(`SMS invitation would be sent to ${phoneNumber}`);
+  /**
+   * Sends the invitation SMS via Supabase Edge Function (Twilio).
+   * The Edge Function must be deployed and Twilio secrets configured; see docs/SMS_INVITATION_INTEGRATION.md
+   */
+  private async sendInvitationSms(invitation: FriendInvitation): Promise<void> {
+    try {
+      const { error } = await supabase.functions.invoke('send-invitation-sms', {
+        body: { invitationId: invitation.id },
+      });
+      if (error) {
+        console.warn('SMS invitation: Edge Function error', error);
+      }
+    } catch (e) {
+      console.warn('SMS invitation: failed to invoke Edge Function', e);
+    }
   }
 
   private async sendInvitationAcceptedNotification(invitation: FriendInvitation): Promise<void> {

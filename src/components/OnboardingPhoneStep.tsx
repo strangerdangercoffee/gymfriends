@@ -1,11 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { userApi } from '../services/api';
 import { invitationService } from '../services/invitations';
 import Button from './Button';
 import Input from './Input';
+import { colors } from '../theme/colors';
 
 interface OnboardingPhoneStepProps {
   onComplete: (phone?: string) => void;
@@ -25,34 +32,25 @@ const OnboardingPhoneStep: React.FC<OnboardingPhoneStepProps> = ({ onComplete, o
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleContinue = async () => {
-    if (!user?.id) return;
+  const handleSavePhone = async () => {
     const trimmed = phone.trim();
-    if (!trimmed) {
-      setError('Please enter your phone number');
-      return;
-    }
-    if (!isValidPhone(trimmed)) {
-      setError('Please enter a valid phone number (10–15 digits)');
-      return;
-    }
+    if (!trimmed) { setError('Please enter your phone number'); return; }
+    if (!isValidPhone(trimmed)) { setError('Please enter a valid phone number (10–15 digits)'); return; }
+    if (!user?.id) return;
+
+    const normalizedPhone = normalizePhone(trimmed);
     setError('');
     setIsLoading(true);
     try {
-      const normalized = normalizePhone(trimmed);
-      await userApi.updateUser(user.id, { phone: normalized });
+      await userApi.updateUser(user.id, { phone: normalizedPhone });
       await refreshUser();
-      const pending = await invitationService.getPendingInvitations(normalized);
+      const pending = await invitationService.getPendingInvitations(normalizedPhone);
       for (const inv of pending) {
-        try {
-          await invitationService.acceptInvitation(inv.id, user.id);
-        } catch {
-          // ignore per-invitation errors
-        }
+        try { await invitationService.acceptInvitation(inv.id, user.id); } catch { /* ignore */ }
       }
-      onComplete(normalized);
+      onComplete(normalizedPhone);
     } catch (e: any) {
-      setError(e.message || 'Failed to save phone number');
+      setError(e.message || 'Could not save phone number. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -65,68 +63,84 @@ const OnboardingPhoneStep: React.FC<OnboardingPhoneStepProps> = ({ onComplete, o
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.iconWrap}>
-        <Ionicons name="call" size={48} color="#007AFF" />
+      <View style={styles.iconContainer}>
+        <Ionicons
+          name="call"
+          size={48}
+          color={colors.primary}
+        />
       </View>
-      <Text style={styles.title}>Add your phone number</Text>
-      <Text style={styles.description}>
-        So friends can find you and we can link any invitations sent to this number to your account.
-      </Text>
-      <Input
-        label="Phone number"
-        placeholder="Enter your phone number"
-        value={phone}
-        onChangeText={(t) => { setPhone(t); setError(''); }}
-        keyboardType="phone-pad"
-        autoCapitalize="none"
-        editable={!isLoading}
-        style={styles.input}
-      />
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      <Button
-        title={isLoading ? 'Saving...' : 'Continue'}
-        onPress={handleContinue}
-        loading={isLoading}
-        disabled={!phone.trim() || isLoading}
-        style={styles.primaryButton}
-      />
-      <TouchableOpacity style={styles.skipButton} onPress={onSkip} disabled={isLoading}>
-        <Text style={styles.skipText}>Skip for now</Text>
-      </TouchableOpacity>
+
+      <>
+        <Text style={styles.title}>Add your phone number</Text>
+        <Text style={styles.description}>
+          Make it easier for friends to find you, add you to climbing groups, plan trips and sessions with you.
+        </Text>
+
+        <Input
+          label="Phone number"
+          placeholder="(555) 555-5555"
+          value={phone}
+          onChangeText={(t) => { setPhone(t); setError(''); }}
+          keyboardType="phone-pad"
+          autoCapitalize="none"
+          editable={!isLoading}
+          containerStyle={styles.input}
+        />
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        <Button
+          title={isLoading ? 'Saving…' : 'Continue'}
+          onPress={handleSavePhone}
+          loading={isLoading}
+          disabled={!phone.trim() || isLoading}
+          style={styles.primaryButton}
+        />
+        <TouchableOpacity style={styles.skipButton} onPress={onSkip} disabled={isLoading}>
+          <Text style={styles.skipText}>Skip for now</Text>
+        </TouchableOpacity>
+      </>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { paddingHorizontal: 24, paddingBottom: 40 },
-  iconWrap: {
+  content: { paddingHorizontal: 24, paddingBottom: 40, paddingTop: 8 },
+  iconContainer: {
+    alignSelf: 'center',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.primaryMuted,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 24,
   },
   title: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     textAlign: 'center',
     marginBottom: 12,
   },
   description: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
+    lineHeight: 24,
+    marginBottom: 28,
   },
   input: { marginBottom: 8 },
   errorText: {
     fontSize: 14,
-    color: '#FF3B30',
+    color: colors.error,
     marginBottom: 12,
+    textAlign: 'center',
   },
   primaryButton: { marginTop: 8, marginBottom: 16 },
   skipButton: { alignSelf: 'center', paddingVertical: 12 },
-  skipText: { fontSize: 16, color: '#8E8E93', fontWeight: '500' },
+  skipText: { fontSize: 16, color: colors.textMuted, fontWeight: '500' },
 });
 
 export default OnboardingPhoneStep;

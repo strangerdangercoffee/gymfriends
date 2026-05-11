@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../theme/colors';
 
 interface OnboardingSlideProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -18,7 +19,7 @@ const OnboardingSlide: React.FC<OnboardingSlideProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.iconContainer}>
-        <Ionicons name={icon} size={80} color="#007AFF" />
+        <Ionicons name={icon} size={80} color={colors.primary} />
       </View>
       
       <Text style={styles.title}>{title}</Text>
@@ -28,7 +29,7 @@ const OnboardingSlide: React.FC<OnboardingSlideProps> = ({
         <View style={styles.featuresContainer}>
           {features.map((feature, index) => (
             <View key={index} style={styles.featureItem}>
-              <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+              <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
               <Text style={styles.featureText}>{feature}</Text>
             </View>
           ))}
@@ -53,18 +54,18 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.primaryMuted,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     textAlign: 'center',
     marginBottom: 16,
   },
   description: {
     fontSize: 18,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 26,
     marginBottom: 24,
@@ -81,7 +82,7 @@ const styles = StyleSheet.create({
   },
   featureText: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginLeft: 12,
     flex: 1,
   },

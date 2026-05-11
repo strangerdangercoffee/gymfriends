@@ -24,6 +24,7 @@ import ClimbingProfileModal from '../components/ClimbingProfileModal';
 import { Gym, ClimbingProfile, BelayCertification, NotificationPreferences, UserAreaPlan, TripInvitation } from '../types';
 import { climbingProfileApi, notificationPreferencesApi, tripInvitationsApi } from '../services/api';
 import { invitationService } from '../services/invitations';
+import { colors } from '../theme/colors';
 
 const ProfileScreen: React.FC = () => {
   const { user, signOut, updateProfile, deleteAccount } = useAuth();
@@ -309,7 +310,7 @@ const ProfileScreen: React.FC = () => {
         <Text style={styles.sectionTitle}>Profile</Text>
         {!isEditing && (
           <TouchableOpacity onPress={() => setIsEditing(true)}>
-            <Ionicons name="pencil-outline" size={20} color="#007AFF" />
+            <Ionicons name="pencil-outline" size={20} color={colors.primary} />
           </TouchableOpacity>
         )}
       </View>
@@ -385,7 +386,7 @@ const ProfileScreen: React.FC = () => {
         <Card style={styles.gymCard}>
           <View style={styles.gymHeader}>
             <View style={styles.gymInfo}>
-              <View style={[styles.gymIcon, { backgroundColor: '#FF9500' }]}>
+              <View style={[styles.gymIcon, { backgroundColor: colors.secondary }]}>
                 <Ionicons name="trending-up-outline" size={20} color="white" />
               </View>
               <View style={styles.gymDetails}>
@@ -400,20 +401,20 @@ const ProfileScreen: React.FC = () => {
               <Ionicons 
                 name="heart" 
                 size={20} 
-                color="#FF3B30" 
+                color={colors.error} 
               />
             </TouchableOpacity>
           </View>
 
           <View style={styles.gymStats}>
             <View style={styles.statItem}>
-              <Ionicons name="people-outline" size={16} color="#8E8E93" />
+              <Ionicons name="people-outline" size={16} color={colors.textMuted} />
               <Text style={styles.statText}>
                 {currentUserCount} {currentUserCount === 1 ? 'person' : 'people'} here
               </Text>
             </View>
             <View style={styles.statItem}>
-              <Ionicons name="heart-outline" size={16} color="#8E8E93" />
+              <Ionicons name="heart-outline" size={16} color={colors.textMuted} />
               <Text style={styles.statText}>
                 {followerCount} {followerCount === 1 ? 'follower' : 'followers'}
               </Text>
@@ -449,7 +450,7 @@ const ProfileScreen: React.FC = () => {
         <Card style={styles.searchGymCard}>
           <View style={styles.gymHeader}>
             <View style={styles.gymInfo}>
-              <View style={[styles.gymIcon, { backgroundColor: '#FF9500' }]}>
+              <View style={[styles.gymIcon, { backgroundColor: colors.secondary }]}>
                 <Ionicons name="trending-up-outline" size={20} color="white" />
               </View>
               <View style={styles.gymDetails}>
@@ -464,20 +465,20 @@ const ProfileScreen: React.FC = () => {
               <Ionicons 
                 name={isFollowing ? "heart" : "heart-outline"} 
                 size={20} 
-                color={isFollowing ? "#FF3B30" : "#8E8E93"} 
+                color={isFollowing ? colors.error : colors.textMuted} 
               />
             </TouchableOpacity>
           </View>
 
           <View style={styles.gymStats}>
             <View style={styles.statItem}>
-              <Ionicons name="people-outline" size={16} color="#8E8E93" />
+              <Ionicons name="people-outline" size={16} color={colors.textMuted} />
               <Text style={styles.statText}>
                 {currentUserCount} {currentUserCount === 1 ? 'person' : 'people'} here
               </Text>
             </View>
             <View style={styles.statItem}>
-              <Ionicons name="heart-outline" size={16} color="#8E8E93" />
+              <Ionicons name="heart-outline" size={16} color={colors.textMuted} />
               <Text style={styles.statText}>
                 {followerCount} {followerCount === 1 ? 'follower' : 'followers'}
               </Text>
@@ -543,7 +544,7 @@ const ProfileScreen: React.FC = () => {
             {/* Modal Header */}
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={closeSearchModal}>
-                <Ionicons name="close" size={24} color="#007AFF" />
+                <Ionicons name="close" size={24} color={colors.primary} />
               </TouchableOpacity>
               <Text style={styles.modalTitle}>Find Climbing Gyms</Text>
               <View style={{ width: 24 }} />
@@ -551,7 +552,7 @@ const ProfileScreen: React.FC = () => {
 
             {/* Search Bar */}
             <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#8E8E93" style={styles.searchIcon} />
+              <Ionicons name="search" size={20} color={colors.textMuted} style={styles.searchIcon} />
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search climbing gyms by name or address..."
@@ -682,10 +683,34 @@ const ProfileScreen: React.FC = () => {
     load();
   }, [user?.id]);
 
-  const handleTripInvitationResponse = async (invitationId: string, status: 'accepted' | 'declined') => {
+  const handleTripInvitationResponse = async (
+    invitationId: string,
+    status: 'accepted' | 'declined'
+  ) => {
+    const inv = tripInvitations.find((i) => i.id === invitationId);
     try {
-      await tripInvitationsApi.respond(invitationId, status);
-      setTripInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+      if (status === 'accepted' && inv?.trip && user?.id) {
+        const { planAdded } = await tripInvitationsApi.acceptAndMirrorTrip(
+          invitationId,
+          user.id,
+          inv.trip
+        );
+        setTripInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+        if (planAdded) {
+          Alert.alert(
+            'Accepted',
+            'Trip added to your schedule. Open the area’s Friend calendar to see My trip.'
+          );
+        } else {
+          Alert.alert(
+            'Accepted',
+            'You’re on the trip. If dates don’t show on your schedule, plan the area from Connections → Area feeds.'
+          );
+        }
+      } else {
+        await tripInvitationsApi.respond(invitationId, status);
+        setTripInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+      }
     } catch {
       Alert.alert('Error', 'Failed to update invitation');
     }
@@ -700,7 +725,7 @@ const ProfileScreen: React.FC = () => {
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Climbing Profile</Text>
         <TouchableOpacity onPress={() => setShowClimbingProfileModal(true)}>
-          <Ionicons name="create-outline" size={20} color="#007AFF" />
+          <Ionicons name="create-outline" size={20} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -833,8 +858,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, workoutInvitations: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.workoutInvitations ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.workoutInvitations ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -850,8 +875,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, workoutResponses: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.workoutResponses ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.workoutResponses ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -867,8 +892,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, workoutBails: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.workoutBails ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.workoutBails ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -884,8 +909,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, workoutReminders: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.workoutReminders ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.workoutReminders ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -901,8 +926,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, friendAtGym: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.friendAtGym ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.friendAtGym ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -918,8 +943,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) =>
             setNotificationPreferences({...notificationPreferences, friendAtCrag: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.friendAtCrag ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.friendAtCrag ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -935,8 +960,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) =>
             setNotificationPreferences({...notificationPreferences, friendTripAnnouncements: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.friendTripAnnouncements ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.friendTripAnnouncements ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -952,8 +977,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, groupMessages: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.groupMessages ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.groupMessages ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -969,8 +994,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, belayerRequests: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.belayerRequests ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.belayerRequests ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -986,8 +1011,8 @@ const ProfileScreen: React.FC = () => {
           onValueChange={(value) => 
             setNotificationPreferences({...notificationPreferences, belayerResponses: value})
           }
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={notificationPreferences.belayerResponses ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={notificationPreferences.belayerResponses ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -1014,8 +1039,8 @@ const ProfileScreen: React.FC = () => {
         <Switch
           value={shareLocation}
           onValueChange={setShareLocation}
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={shareLocation ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={shareLocation ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -1029,8 +1054,8 @@ const ProfileScreen: React.FC = () => {
         <Switch
           value={shareSchedule}
           onValueChange={setShareSchedule}
-          trackColor={{ false: '#E5E5E7', true: '#007AFF' }}
-          thumbColor={shareSchedule ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={shareSchedule ? colors.text : colors.textMuted}
         />
       </View>
 
@@ -1038,14 +1063,14 @@ const ProfileScreen: React.FC = () => {
         <View style={styles.settingInfo}>
           <View style={styles.settingTitleRow}>
             <Text style={styles.settingTitle}>Auto Check-In</Text>
-            <Ionicons name="location" size={16} color="#007AFF" style={styles.locationIcon} />
+            <Ionicons name="location" size={16} color={colors.primary} style={styles.locationIcon} />
           </View>
           <Text style={styles.settingDescription}>
             Automatically check in when within 500ft of your gym
           </Text>
           {isGeofencingActive && (
             <View style={styles.activeChip}>
-              <Ionicons name="checkmark-circle" size={12} color="#34C759" />
+              <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
               <Text style={styles.activeChipText}>Active</Text>
             </View>
           )}
@@ -1053,8 +1078,8 @@ const ProfileScreen: React.FC = () => {
         <Switch
           value={autoCheckIn}
           onValueChange={handleAutoCheckInToggle}
-          trackColor={{ false: '#E5E5E7', true: '#34C759' }}
-          thumbColor={autoCheckIn ? 'white' : '#8E8E93'}
+          trackColor={{ false: colors.border, true: colors.primary }}
+          thumbColor={autoCheckIn ? colors.text : colors.textMuted}
         />
       </View>
     </Card>
@@ -1072,7 +1097,7 @@ const ProfileScreen: React.FC = () => {
           </Text>
         </View>
         <TouchableOpacity
-          style={[styles.statusBadge, { backgroundColor: hasPermissions ? '#34C759' : '#FF3B30' }]}
+          style={[styles.statusBadge, { backgroundColor: hasPermissions ? colors.primary : colors.error }]}
           onPress={handleLocationPermission}
         >
           <Text style={styles.statusText}>
@@ -1089,7 +1114,7 @@ const ProfileScreen: React.FC = () => {
           </Text>
         </View>
         <TouchableOpacity
-          style={[styles.statusBadge, { backgroundColor: isTracking ? '#34C759' : '#8E8E93' }]}
+          style={[styles.statusBadge, { backgroundColor: isTracking ? colors.primary : colors.textMuted }]}
           onPress={() => {
             if (isTracking) {
               stopTracking();
@@ -1112,22 +1137,22 @@ const ProfileScreen: React.FC = () => {
       
       <TouchableOpacity style={styles.settingItem} onPress={handleSignOut}>
         <View style={styles.settingInfo}>
-          <Text style={[styles.settingTitle, { color: '#FF3B30' }]}>Sign Out</Text>
+          <Text style={[styles.settingTitle, { color: colors.error }]}>Sign Out</Text>
           <Text style={styles.settingDescription}>
             Sign out of your account
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+        <Ionicons name="chevron-forward" size={20} color={colors.textFaded} />
       </TouchableOpacity>
 
       <TouchableOpacity style={[styles.settingItem, styles.deleteAccountItem]} onPress={handleDeleteAccount}>
         <View style={styles.settingInfo}>
-          <Text style={[styles.settingTitle, { color: '#FF3B30' }]}>Delete Account</Text>
+          <Text style={[styles.settingTitle, { color: colors.error }]}>Delete Account</Text>
           <Text style={styles.settingDescription}>
             Permanently delete your account and all data
           </Text>
         </View>
-        <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+        <Ionicons name="trash-outline" size={20} color={colors.error} />
       </TouchableOpacity>
     </Card>
   );
@@ -1166,7 +1191,7 @@ const ProfileScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   section: {
     marginHorizontal: 16,
@@ -1181,21 +1206,21 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   tripInviteRow: {
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   tripInviteInfo: { marginBottom: 8 },
-  tripInviteTitle: { fontSize: 16, fontWeight: '600' },
-  tripInviteArea: { fontSize: 14, color: '#8E8E93', marginTop: 2 },
-  tripInviteComment: { fontSize: 14, color: '#333', marginTop: 4, fontStyle: 'italic' },
+  tripInviteTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
+  tripInviteArea: { fontSize: 14, color: colors.textMuted, marginTop: 2 },
+  tripInviteComment: { fontSize: 14, color: colors.textMuted, marginTop: 4, fontStyle: 'italic' },
   tripInviteActions: { flexDirection: 'row', gap: 12 },
   tripInviteBtn: { paddingVertical: 6, paddingHorizontal: 12 },
-  tripInviteDecline: { fontSize: 14, color: '#8E8E93' },
-  tripInviteAccept: { fontSize: 14, color: '#007AFF', fontWeight: '600' },
+  tripInviteDecline: { fontSize: 14, color: colors.textMuted },
+  tripInviteAccept: { fontSize: 14, color: colors.primary, fontWeight: '600' },
   editForm: {
     gap: 16,
   },
@@ -1220,7 +1245,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -1228,7 +1253,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 24,
     fontWeight: '600',
-    color: 'white',
+    color: colors.background,
   },
   userInfo: {
     flex: 1,
@@ -1236,12 +1261,12 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   userEmail: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -1253,7 +1278,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F7',
+    borderBottomColor: colors.border,
   },
   settingInfo: {
     flex: 1,
@@ -1262,12 +1287,12 @@ const styles = StyleSheet.create({
   settingTitle: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#000',
+    color: colors.text,
     marginBottom: 2,
   },
   settingDescription: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   statusBadge: {
     paddingHorizontal: 12,
@@ -1277,7 +1302,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
-    color: 'white',
+    color: colors.text,
   },
   autoCheckInItem: {
     borderBottomWidth: 0,
@@ -1287,7 +1312,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
+    borderTopColor: colors.border,
   },
   settingTitleRow: {
     flexDirection: 'row',
@@ -1299,7 +1324,7 @@ const styles = StyleSheet.create({
   activeChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F5E9',
+    backgroundColor: colors.successMuted,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -1309,7 +1334,7 @@ const styles = StyleSheet.create({
   activeChipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#2E7D32',
+    color: colors.primary,
     marginLeft: 4,
   },
   // Gyms section styles
@@ -1348,12 +1373,12 @@ const styles = StyleSheet.create({
   gymName: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   gymAddress: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   followButton: {
     padding: 8,
@@ -1369,7 +1394,7 @@ const styles = StyleSheet.create({
   },
   statText: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginLeft: 4,
   },
   gymActions: {
@@ -1389,19 +1414,19 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginTop: 12,
     marginBottom: 4,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
   },
   // Modal styles
   modalContainer: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1409,25 +1434,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     marginHorizontal: 16,
     marginVertical: 16,
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
+    borderColor: colors.border,
   },
   searchIcon: {
     marginRight: 8,
@@ -1436,7 +1461,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
   },
   searchListContainer: {
     paddingHorizontal: 16,
@@ -1449,13 +1474,13 @@ const styles = StyleSheet.create({
   climbingLabel: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#666',
+    color: colors.textMuted,
     marginBottom: 8,
   },
   climbingSubtitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: colors.textSecondary,
     marginTop: 16,
     marginBottom: 12,
   },
@@ -1472,20 +1497,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    backgroundColor: '#F9F9F9',
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
     alignItems: 'center',
   },
   preferenceButtonActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   preferenceButtonText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textMuted,
   },
   preferenceButtonTextActive: {
-    color: '#FFF',
+    color: colors.background,
     fontWeight: '600',
   },
   gradeRow: {
@@ -1499,7 +1524,7 @@ const styles = StyleSheet.create({
   },
   gradeSeparator: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
   },
   checkboxRow: {
     flexDirection: 'row',
@@ -1509,14 +1534,14 @@ const styles = StyleSheet.create({
   },
   checkboxLabel: {
     fontSize: 14,
-    color: '#333',
+    color: colors.textSecondary,
   },
   certRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     marginBottom: 8,
   },
@@ -1526,11 +1551,11 @@ const styles = StyleSheet.create({
   certGym: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: colors.textSecondary,
   },
   certType: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textMuted,
     marginTop: 4,
   },
   addCertButton: {
@@ -1539,7 +1564,7 @@ const styles = StyleSheet.create({
   addCertForm: {
     marginTop: 12,
     padding: 12,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
   },
   gymPicker: {
@@ -1551,12 +1576,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: '#FFF',
+    backgroundColor: colors.surface,
     borderRadius: 8,
     marginBottom: 8,
   },
   gymOptionSelected: {
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.primaryMuted,
   },
   addCertButtons: {
     flexDirection: 'row',
@@ -1568,16 +1593,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F7',
+    borderBottomColor: colors.border,
   },
   climbingInfoLabel: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#666',
+    color: colors.textMuted,
   },
   climbingInfoValue: {
     fontSize: 14,
-    color: '#000',
+    color: colors.text,
   },
   certificationsList: {
     marginTop: 12,

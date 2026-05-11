@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,34 +10,45 @@ import {
   Alert,
   RefreshControl,
   ScrollView,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // Removed useFocusEffect import - using useEffect instead to reduce API calls
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
-import { groupsApi } from '../services/api';
+import { groupsApi, avatarsApi } from '../services/api';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import QRCodeDisplayModal from '../components/QRCodeDisplayModal';
 import QRCodeScannerModal from '../components/QRCodeScannerModal';
 import CreateGroupModal from '../components/CreateGroupModal';
+import { colors } from '../theme/colors';
+import {
+  buildCragOptions,
+  buildGymOptions,
+  getCanonicalCityOptions,
+  makeCanonicalLocationKey,
+} from '../utils/locationMatching';
 
 interface Group {
   id: string;
   name: string;
   description?: string;
-  privacy: 'public' | 'private' | 'invite-only';
+  privacy: 'public' | 'private';
   locationType?: 'gym' | 'city' | 'crag';
   locationName?: string;
+  avatarUrl?: string;
   memberCount: number;
   role: 'admin' | 'moderator' | 'member';
 }
 
 const GroupsScreen: React.FC = () => {
   const { user } = useAuth();
-  const { refreshData } = useApp();
+  const { refreshData, gyms, climbingAreas } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchLocationType, setSearchLocationType] = useState<'gym' | 'city' | 'crag' | undefined>(undefined);
+  const [searchLocationValue, setSearchLocationValue] = useState('');
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [qrGroupData, setQrGroupData] = useState<{ id: string; name: string } | null>(null);
@@ -80,6 +91,8 @@ const GroupsScreen: React.FC = () => {
 
   const openSearchModal = async () => {
     setSearchQuery('');
+    setSearchLocationType(undefined);
+    setSearchLocationValue('');
     setSearchModalVisible(true);
     try {
       const publicGroups = await groupsApi.searchPublicGroups();
@@ -92,6 +105,8 @@ const GroupsScreen: React.FC = () => {
   const closeSearchModal = () => {
     setSearchModalVisible(false);
     setSearchQuery('');
+    setSearchLocationType(undefined);
+    setSearchLocationValue('');
   };
 
   const handleGroupPress = (group: Group) => {
@@ -165,19 +180,25 @@ const GroupsScreen: React.FC = () => {
   const handleCreateGroup = async (groupData: {
     name: string;
     description?: string;
-    privacy: 'public' | 'private' | 'invite-only';
+    privacy: 'public' | 'private';
     locationType?: 'gym' | 'city' | 'crag';
     associatedGymId?: string;
     associatedCity?: string;
     associatedCrag?: string;
     invitedUserIds: string[];
+    groupImageUri?: string;
   }) => {
     if (!user?.id) {
       throw new Error('User not logged in');
     }
 
     try {
-      await groupsApi.createGroup(user.id, groupData);
+      const { groupImageUri, ...rest } = groupData;
+      const group = await groupsApi.createGroup(user.id, rest);
+      if (groupImageUri) {
+        const avatarUrl = await avatarsApi.uploadGroupAvatar(group.group_id, groupImageUri);
+        await groupsApi.updateGroup(group.group_id, { avatarUrl });
+      }
       // Refresh groups after creation
       await handleRefresh();
     } catch (error) {
@@ -193,9 +214,13 @@ const GroupsScreen: React.FC = () => {
       >
         <View style={styles.groupHeader}>
           <View style={styles.groupInfo}>
-            <View style={styles.groupIcon}>
-              <Ionicons name="people" size={24} color="#007AFF" />
-            </View>
+            {item.avatarUrl ? (
+              <Image source={{ uri: item.avatarUrl }} style={styles.groupIconImage} />
+            ) : (
+              <View style={styles.groupIcon}>
+                <Ionicons name="people" size={24} color="#007AFF" />
+              </View>
+            )}
             <View style={styles.groupDetails}>
               <Text style={styles.groupName}>{item.name}</Text>
               {item.description && (
@@ -244,9 +269,13 @@ const GroupsScreen: React.FC = () => {
     <Card style={styles.groupCard}>
       <View style={styles.groupHeader}>
         <View style={styles.groupInfo}>
-          <View style={styles.groupIcon}>
-            <Ionicons name="people" size={24} color="#007AFF" />
-          </View>
+          {item.avatarUrl ? (
+            <Image source={{ uri: item.avatarUrl }} style={styles.groupIconImage} />
+          ) : (
+            <View style={styles.groupIcon}>
+              <Ionicons name="people" size={24} color="#007AFF" />
+            </View>
+          )}
           <View style={styles.groupDetails}>
             <Text style={styles.groupName}>{item.name}</Text>
             {item.description && (
@@ -307,10 +336,41 @@ const GroupsScreen: React.FC = () => {
     </View>
   );
 
-  const filteredPublicGroups = publicGroups.filter(group =>
-    group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    group.description?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const cityOptions = useMemo(() => getCanonicalCityOptions(), []);
+  const gymOptions = useMemo(() => buildGymOptions(gyms), [gyms]);
+  const cragOptions = useMemo(() => buildCragOptions(climbingAreas), [climbingAreas]);
+
+  const locationOptions = useMemo(() => {
+    if (searchLocationType === 'gym') return gymOptions;
+    if (searchLocationType === 'crag') return cragOptions;
+    if (searchLocationType === 'city') return cityOptions;
+    return [];
+  }, [searchLocationType, gymOptions, cragOptions, cityOptions]);
+
+  const filteredLocationOptions = useMemo(() => {
+    const q = searchLocationValue.trim().toLowerCase();
+    if (!q) return locationOptions.slice(0, 24);
+    return locationOptions.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 24);
+  }, [locationOptions, searchLocationValue]);
+
+  const filteredPublicGroups = publicGroups.filter((group) => {
+    const query = searchQuery.trim().toLowerCase();
+    const matchesText =
+      !query ||
+      group.name.toLowerCase().includes(query) ||
+      group.description?.toLowerCase().includes(query) ||
+      group.locationName?.toLowerCase().includes(query);
+
+    const selectedLocation = searchLocationValue.trim();
+    const matchesLocation =
+      !searchLocationType ||
+      !selectedLocation ||
+      (group.locationType === searchLocationType &&
+        makeCanonicalLocationKey(group.locationName || '', searchLocationType) ===
+          makeCanonicalLocationKey(selectedLocation, searchLocationType));
+
+    return matchesText && matchesLocation;
+  });
 
   return (
     <View style={styles.container}>
@@ -446,6 +506,65 @@ const GroupsScreen: React.FC = () => {
             />
           </View>
 
+          <View style={styles.filterTypeContainer}>
+            {(['gym', 'city', 'crag'] as const).map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.filterTypeButton,
+                  searchLocationType === type && styles.filterTypeButtonActive,
+                ]}
+                onPress={() => {
+                  setSearchLocationType(type);
+                  setSearchLocationValue('');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.filterTypeText,
+                    searchLocationType === type && styles.filterTypeTextActive,
+                  ]}
+                >
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {searchLocationType && (
+              <TouchableOpacity
+                style={styles.clearFilterButton}
+                onPress={() => {
+                  setSearchLocationType(undefined);
+                  setSearchLocationValue('');
+                }}
+              >
+                <Text style={styles.clearFilterText}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {searchLocationType && (
+            <View style={styles.locationFilterContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder={`Filter by ${searchLocationType}...`}
+                value={searchLocationValue}
+                onChangeText={setSearchLocationValue}
+              />
+              <ScrollView style={styles.locationOptionList} nestedScrollEnabled>
+                {filteredLocationOptions.map((option) => (
+                  <TouchableOpacity
+                    key={option.key}
+                    style={styles.locationOption}
+                    onPress={() => setSearchLocationValue(option.label)}
+                  >
+                    <Ionicons name="location-outline" size={16} color="#8E8E93" />
+                    <Text style={styles.locationOptionText}>{option.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           <FlatList
             data={filteredPublicGroups}
             renderItem={renderSearchGroupCard}
@@ -542,7 +661,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E5E7',
   },
@@ -590,6 +709,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
+  groupIconImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
   groupDetails: {
     flex: 1,
   },
@@ -623,7 +748,7 @@ const styles = StyleSheet.create({
   roleText: {
     fontSize: 12,
     fontWeight: '600',
-    color: 'white',
+    color: colors.text,
   },
   groupStats: {
     flexDirection: 'row',
@@ -674,7 +799,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E5E7',
   },
@@ -746,7 +871,7 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     marginHorizontal: 16,
     marginVertical: 16,
     paddingHorizontal: 12,
@@ -766,6 +891,67 @@ const styles = StyleSheet.create({
   searchListContainer: {
     paddingHorizontal: 16,
     paddingBottom: 16,
+  },
+  filterTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  filterTypeButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterTypeButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
+  },
+  filterTypeText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+  filterTypeTextActive: {
+    color: colors.primary,
+  },
+  clearFilterButton: {
+    marginLeft: 'auto',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  clearFilterText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  locationFilterContainer: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  locationOptionList: {
+    maxHeight: 160,
+    marginTop: 8,
+  },
+  locationOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  locationOptionText: {
+    fontSize: 14,
+    color: colors.text,
+    marginLeft: 8,
   },
 });
 

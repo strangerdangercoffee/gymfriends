@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Image,
   TextInput,
+  type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +18,8 @@ import { AreaFeedPost, BelayerRequestResponse } from '../types';
 import Card from './Card';
 import Button from './Button';
 import BelayerResponsePool from './BelayerResponsePool';
+import { colors } from '../theme/colors';
+import { getBelayerRequestFeedTitle } from '../utils/belayerRequestTitles';
 
 interface AreaFeedProps {
   gymId?: string;
@@ -187,7 +190,7 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
               <Image source={{ uri: post.authorAvatar }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
-                <Ionicons name="person" size={20} color="#999" />
+                <Ionicons name="person" size={20} color={colors.textMuted} />
               </View>
             )}
             <View style={styles.authorDetails}>
@@ -202,50 +205,36 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
             }}
             style={styles.reportButton}
           >
-            <Ionicons name="flag-outline" size={20} color="#999" />
+            <Ionicons name="flag-outline" size={20} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.postTypeBadge}>
-          <Text style={styles.postTypeText}>
-            {post.postType === 'belayer_request' ? '🔗 Belayer Request' :
-             post.postType === 'rally_pads_request' ? '🧗 Rally Pads Request' :
-             post.postType === 'trip_announcement' ? '✈️ Trip plan' :
-             post.postType === 'lost_found' ? '🔍 Lost & Found' :
-             post.postType === 'discussion' ? '💬 Discussion' : '📌 General'}
-          </Text>
-        </View>
+        {!isBelayerRequest && (
+          <View style={styles.postTypeBadge}>
+            <Text style={styles.postTypeText}>
+              {post.postType === 'trip_announcement' ? '✈️ Trip plan' :
+               post.postType === 'lost_found' ? '🔍 Lost & Found' :
+               post.postType === 'discussion' ? '💬 Discussion' : '📌 General'}
+            </Text>
+          </View>
+        )}
 
-        <Text style={styles.postTitle}>{post.title}</Text>
+        <Text style={styles.postTitle}>
+          {isBelayerRequest
+            ? getBelayerRequestFeedTitle(
+                post.authorName,
+                post.postType as 'belayer_request' | 'rally_pads_request',
+                post.climbingType
+              )
+            : post.title}
+        </Text>
         <Text style={styles.postContent}>{post.content}</Text>
 
         {isBelayerRequest && (
           <View style={styles.belayerDetails}>
-            {post.climbingType && (
-              <View style={styles.detailRow}>
-                <Ionicons name="fitness" size={16} color="#666" />
-                <Text style={styles.detailText}>
-                  {post.climbingType === 'top_rope' ? 'Top Rope' :
-                   post.climbingType === 'lead' ? 'Lead' :
-                   post.climbingType === 'bouldering' ? 'Bouldering' : 'Any'}
-                </Text>
-              </View>
-            )}
-            {post.targetRoute && (
-              <View style={styles.detailRow}>
-                <Ionicons name="map" size={16} color="#666" />
-                <Text style={styles.detailText}>{post.targetRoute}</Text>
-              </View>
-            )}
-            {post.targetGrade && (
-              <View style={styles.detailRow}>
-                <Ionicons name="trending-up" size={16} color="#666" />
-                <Text style={styles.detailText}>{post.targetGrade}</Text>
-              </View>
-            )}
             {post.urgency === 'scheduled' && post.scheduledTime && (
               <View style={styles.detailRow}>
-                <Ionicons name="time" size={16} color="#666" />
+                <Ionicons name="time" size={16} color={colors.textMuted} />
                 <Text style={styles.detailText}>
                   {new Date(post.scheduledTime).toLocaleString()}
                 </Text>
@@ -253,7 +242,7 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
             )}
             {post.urgency === 'now' && (
               <View style={styles.detailRow}>
-                <Ionicons name="flash" size={16} color="#FF9500" />
+                <Ionicons name="flash" size={16} color={colors.secondary} />
                 <Text style={[styles.detailText, styles.urgentText]}>Right now</Text>
               </View>
             )}
@@ -268,7 +257,7 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
                   style={styles.responseButton}
                   onPress={() => handleViewResponses(post)}
                 >
-                  <Ionicons name="people" size={18} color="#007AFF" />
+                  <Ionicons name="people" size={18} color={colors.primary} />
                   <Text style={styles.responseButtonText}>
                     {post.responseCount || 0} {post.responseCount === 1 ? 'response' : 'responses'}
                   </Text>
@@ -277,8 +266,13 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
                 <Button
                   title={hasResponded ? "✓ I'm Free" : "I'm Free"}
                   onPress={() => handleRespond(post)}
-                  style={[styles.imFreeButton, hasResponded && styles.imFreeButtonActive]}
-                  disabled={hasResponded}
+                  style={
+                    StyleSheet.flatten([
+                      styles.imFreeButton,
+                      hasResponded ? styles.imFreeButtonActive : undefined,
+                    ]) as ViewStyle
+                  }
+                  disabled={!!hasResponded}
                 />
               )}
             </>
@@ -301,7 +295,7 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
               setReportingPost(null);
               setReportReason('');
             }}>
-              <Ionicons name="close" size={24} color="#333" />
+              <Ionicons name="close" size={24} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
           <Text style={styles.modalText}>
@@ -350,13 +344,15 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
         data={posts}
         renderItem={renderPost}
         keyExtractor={(item) => item.postId}
-        ListHeaderComponent={listHeaderComponent}
+        ListHeaderComponent={
+          listHeaderComponent ? <>{listHeaderComponent}</> : null
+        }
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="document-text-outline" size={48} color="#999" />
+            <Ionicons name="document-text-outline" size={48} color={colors.textMuted} />
             <Text style={styles.emptyText}>No posts yet</Text>
             <Text style={styles.emptySubtext}>Be the first to post!</Text>
           </View>
@@ -389,7 +385,7 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: colors.background,
   },
   listContent: {
     padding: 16,
@@ -419,7 +415,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#E5E5E5',
+    backgroundColor: colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -430,11 +426,11 @@ const styles = StyleSheet.create({
   authorName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: colors.text,
   },
   postTime: {
     fontSize: 12,
-    color: '#999',
+    color: colors.textMuted,
     marginTop: 2,
   },
   reportButton: {
@@ -444,29 +440,29 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.primaryMuted,
     borderRadius: 4,
     marginBottom: 8,
   },
   postTypeText: {
     fontSize: 12,
-    color: '#1976D2',
+    color: colors.primary,
     fontWeight: '500',
   },
   postTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: colors.text,
     marginBottom: 8,
   },
   postContent: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textMuted,
     lineHeight: 20,
     marginBottom: 12,
   },
   belayerDetails: {
-    backgroundColor: '#F9F9F9',
+    backgroundColor: colors.surfaceElevated,
     padding: 12,
     borderRadius: 8,
     marginBottom: 12,
@@ -479,10 +475,10 @@ const styles = StyleSheet.create({
   },
   detailText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textMuted,
   },
   urgentText: {
-    color: '#FF9500',
+    color: colors.secondary,
     fontWeight: '600',
   },
   postFooter: {
@@ -491,7 +487,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E5',
+    borderTopColor: colors.border,
   },
   responseButton: {
     flexDirection: 'row',
@@ -502,7 +498,7 @@ const styles = StyleSheet.create({
   },
   responseButtonText: {
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '500',
   },
   imFreeButton: {
@@ -510,7 +506,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   imFreeButtonActive: {
-    backgroundColor: '#34C759',
+    backgroundColor: colors.secondary,
   },
   centered: {
     flex: 1,
@@ -525,12 +521,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666',
+    color: colors.textMuted,
     marginTop: 16,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#999',
+    color: colors.textMuted,
     marginTop: 8,
   },
   modalOverlay: {
@@ -539,7 +535,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -557,16 +553,16 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
   },
   modalText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textMuted,
     marginBottom: 12,
   },
   reportInput: {
     borderWidth: 1,
-    borderColor: '#E5E5E5',
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 12,
     minHeight: 100,
@@ -579,7 +575,7 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: '#E5E5E5',
+    backgroundColor: colors.surfaceElevated,
   },
   submitButton: {
     flex: 1,

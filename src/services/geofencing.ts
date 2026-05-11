@@ -68,84 +68,95 @@ async function handleLocationUpdate(latitude: number, longitude: number): Promis
     console.log(`[Geofence] Checking location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`);
   }
 
-  const followedGyms = await getFollowedGyms();
+  const gymsForProximity = await getGymsForProximity();
 
-  // 1) Gym geofence (existing)
-  if (followedGyms && followedGyms.length > 0) {
-    const nearbyGyms = locationService.findNearbyGyms(
-    latitude,
-    longitude,
-    followedGyms,
-    CHECK_IN_RADIUS_METERS
-  );
+  const areasToCheck = cachedAllClimbingAreas.length > 0 ? cachedAllClimbingAreas : cachedClimbingAreas;
+  const areasForDistance = areasToCheck.map((a) => ({
+    id: a.id,
+    latitude: a.latitude,
+    longitude: a.longitude,
+    geofenceRadiusM: a.geofenceRadiusM,
+  }));
 
-  const nearestGym = (await nearbyGyms)[0];
+  const hasGyms = gymsForProximity.length > 0;
+  const hasAreas = areasForDistance.length > 0;
 
-  // Handle auto check-in
-  if (nearestGym && !geofenceState.isAutoCheckedIn) {
-    // User entered a gym's geofence
-    try {
-      await presenceApi.checkIn(geofenceState.userId, nearestGym.id, {
-        latitude,
-        longitude,
-      });
-      
-      geofenceState.currentGymId = nearestGym.id;
-      geofenceState.isAutoCheckedIn = true;
-      geofenceState.lastCheckedGymId = nearestGym.id;
-      
-      console.log(`Auto checked in to gym: ${nearestGym.id}`);
-      
-      // TODO: Send notification to user
-    } catch (error) {
-      console.error('Error auto checking in:', error);
+  /** One haversine pass per tick for all gyms (auto check-in) + outdoor areas (same coordinates). */
+  let nearbyGymsSorted: Array<{ id: string; distance: number }> = [];
+  let nearbyAreas: Array<{ id: string; distance: number }> = [];
+  if (hasGyms || hasAreas) {
+    const result = locationService.findGymAndAreaProximity(
+      latitude,
+      longitude,
+      hasGyms ? gymsForProximity : [],
+      CHECK_IN_RADIUS_METERS,
+      hasAreas ? areasForDistance : []
+    );
+    nearbyGymsSorted = result.nearbyGymsSorted;
+    nearbyAreas = result.nearbyAreasSorted;
+  }
+
+  // 1) Gym geofence (same location tick as area visit check below)
+  if (hasGyms) {
+    const nearestGym = nearbyGymsSorted[0];
+
+    // Handle auto check-in
+    if (nearestGym && !geofenceState.isAutoCheckedIn) {
+      // User entered a gym's geofence
+      try {
+        await presenceApi.checkIn(geofenceState.userId, nearestGym.id, {
+          latitude,
+          longitude,
+        });
+
+        geofenceState.currentGymId = nearestGym.id;
+        geofenceState.isAutoCheckedIn = true;
+        geofenceState.lastCheckedGymId = nearestGym.id;
+
+        console.log(`Auto checked in to gym: ${nearestGym.id}`);
+
+        // TODO: Send notification to user
+      } catch (error) {
+        console.error('Error auto checking in:', error);
+      }
     }
-  } 
-  // Handle auto check-out
-  else if (geofenceState.isAutoCheckedIn && geofenceState.currentGymId) {
-    // Check if user is still near the gym they're checked into
-    const currentGym = followedGyms.find(g => g.id === geofenceState.currentGymId);
-    
-    if (currentGym) {
-      const distance = locationService.calculateDistance(
-        latitude,
-        longitude,
-        currentGym.latitude,
-        currentGym.longitude
-      );
+    // Handle auto check-out
+    else if (geofenceState.isAutoCheckedIn && geofenceState.currentGymId) {
+      // Check if user is still near the gym they're checked into (any gym, not only followed)
+      const currentGym = gymsForProximity.find((g) => g.id === geofenceState.currentGymId);
 
-      // User left the gym's geofence (with buffer)
-      if (distance > CHECK_OUT_RADIUS_METERS) {
-        try {
-          await presenceApi.checkOut(geofenceState.userId, geofenceState.currentGymId);
-          
-          console.log(`Auto checked out from gym: ${geofenceState.currentGymId}`);
-          
-          geofenceState.currentGymId = null;
-          geofenceState.isAutoCheckedIn = false;
-          
-          // TODO: Send notification to user
-        } catch (error) {
-          console.error('Error auto checking out:', error);
+      if (currentGym) {
+        const distance = locationService.calculateDistance(
+          latitude,
+          longitude,
+          currentGym.latitude,
+          currentGym.longitude
+        );
+
+        // User left the gym's geofence (with buffer)
+        if (distance > CHECK_OUT_RADIUS_METERS) {
+          try {
+            await presenceApi.checkOut(geofenceState.userId, geofenceState.currentGymId);
+
+            console.log(`Auto checked out from gym: ${geofenceState.currentGymId}`);
+
+            geofenceState.currentGymId = null;
+            geofenceState.isAutoCheckedIn = false;
+
+            // TODO: Send notification to user
+          } catch (error) {
+            console.error('Error auto checking out:', error);
+          }
         }
       }
     }
   }
-  }
 
-  // 2) Climbing area geofence — use all areas when available so we record visits for any area
-  const areasToCheck = cachedAllClimbingAreas.length > 0 ? cachedAllClimbingAreas : cachedClimbingAreas;
+  // 2) Climbing area geofence — uses nearbyAreas from the same findGymAndAreaProximity pass above
   if (__DEV__ && areasToCheck.length > 0) {
     console.log(`[Geofence] Area check: ${areasToCheck.length} areas, currentAreaId=${geofenceState.currentAreaId ?? 'none'}`);
   }
   if (areasToCheck.length > 0) {
-    const areasForDistance = areasToCheck.map((a) => ({
-      id: a.id,
-      latitude: a.latitude,
-      longitude: a.longitude,
-      geofenceRadiusM: a.geofenceRadiusM,
-    }));
-    const nearbyAreas = locationService.findNearbyAreas(latitude, longitude, areasForDistance);
     const nearestArea = nearbyAreas[0];
 
     if (nearestArea && nearestArea.id !== geofenceState.currentAreaId) {
@@ -191,11 +202,11 @@ async function handleLocationUpdate(latitude: number, longitude: number): Promis
   }
 }
 
-// Placeholder for getting followed gyms - should be implemented based on your data flow
-let cachedFollowedGyms: Gym[] = [];
+/** All gyms loaded from the app — used for auto check-in within CHECK_IN_RADIUS_METERS (~500 ft). */
+let cachedGymsForProximity: Gym[] = [];
 
-async function getFollowedGyms(): Promise<Gym[]> {
-  return cachedFollowedGyms;
+async function getGymsForProximity(): Promise<Gym[]> {
+  return cachedGymsForProximity;
 }
 
 export class GeofencingService {
@@ -211,7 +222,7 @@ export class GeofencingService {
 
   async startGeofencing(
     userId: string,
-    followedGyms: Gym[],
+    gymsForProximity: Gym[],
     options?: { userName?: string; followedAreas?: ClimbingArea[]; allClimbingAreas?: ClimbingArea[] }
   ): Promise<void> {
     try {
@@ -221,7 +232,7 @@ export class GeofencingService {
       }
       geofenceState.userId = userId;
       geofenceState.userName = options?.userName;
-      cachedFollowedGyms = followedGyms;
+      cachedGymsForProximity = gymsForProximity;
       cachedClimbingAreas = options?.followedAreas ?? [];
       cachedAllClimbingAreas = options?.allClimbingAreas ?? [];
 
@@ -278,6 +289,7 @@ export class GeofencingService {
         isAutoCheckedIn: false,
         currentAreaId: null,
       };
+      cachedGymsForProximity = [];
       cachedClimbingAreas = [];
       cachedAllClimbingAreas = [];
 
@@ -293,8 +305,8 @@ export class GeofencingService {
     return this.isRunning;
   }
 
-  updateFollowedGyms(gyms: Gym[]): void {
-    cachedFollowedGyms = gyms;
+  updateGymsForProximity(gyms: Gym[]): void {
+    cachedGymsForProximity = gyms;
   }
 
   updateFollowedAreas(areas: ClimbingArea[]): void {

@@ -79,7 +79,7 @@ export const LocationProvider: React.FC<LocationProviderProps> = ({ children }) 
 
   const startGeofencing = async (
     userId: string,
-    followedGyms: Gym[],
+    gymsForProximity: Gym[],
     options?: { userName?: string; followedAreas?: import('../types').ClimbingArea[]; allClimbingAreas?: import('../types').ClimbingArea[] }
   ): Promise<void> => {
     try {
@@ -89,7 +89,7 @@ export const LocationProvider: React.FC<LocationProviderProps> = ({ children }) 
           throw new Error('Background location permission not granted');
         }
       }
-      await geofencingService.startGeofencing(userId, followedGyms, options);
+      await geofencingService.startGeofencing(userId, gymsForProximity, options);
       setIsGeofencingActive(true);
     } catch (error) {
       console.error('Error starting geofencing:', error);

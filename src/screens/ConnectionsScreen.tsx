@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -26,11 +26,17 @@ import { User, Gym } from '../types';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
-import FriendInvitationModal from '../components/FriendInvitationModal';
 import OnboardingInviteFriends from '../components/OnboardingInviteFriends';
 import QRCodeDisplayModal from '../components/QRCodeDisplayModal';
 import QRCodeScannerModal from '../components/QRCodeScannerModal';
 import CreateGroupModal from '../components/CreateGroupModal';
+import { colors } from '../theme/colors';
+import {
+  buildCragOptions,
+  buildGymOptions,
+  getCanonicalCityOptions,
+  makeCanonicalLocationKey,
+} from '../utils/locationMatching';
 
 // type ConnectionsScreenNavigationProp = StackNavigationProp<GroupsStackParamList, 'GroupsMain'>;
 type ConnectionsScreenNavigationProp = any; // Temporary fix
@@ -39,7 +45,7 @@ interface Group {
   id: string;
   name: string;
   description?: string;
-  privacy: 'public' | 'private' | 'invite-only';
+  privacy: 'public' | 'private';
   locationType?: 'gym' | 'city' | 'crag';
   locationName?: string;
   memberCount: number;
@@ -50,7 +56,7 @@ type TabType = 'friends' | 'groups';
 
 const ConnectionsScreen: React.FC = () => {
   const navigation = useNavigation<ConnectionsScreenNavigationProp>();
-  const { friends, gyms, presence, isLoading, addFriend, addFriendInstant, refreshData } = useApp();
+  const { friends, gyms, climbingAreas, presence, isLoading, addFriendInstant, refreshData } = useApp();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   
@@ -59,20 +65,20 @@ const ConnectionsScreen: React.FC = () => {
   
   // Friends state
   const [refreshing, setRefreshing] = useState(false);
-  const [showAddFriend, setShowAddFriend] = useState(false);
-  const [showInviteModal, setShowInviteModal] = useState(false);
   const [showQRDisplay, setShowQRDisplay] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const [friendPhone, setFriendPhone] = useState('');
-  const [addingFriend, setAddingFriend] = useState(false);
-  const [inviteModalInitialPhone, setInviteModalInitialPhone] = useState('');
   const [showInviteFriendsModal, setShowInviteFriendsModal] = useState(false);
   
   // Groups state
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchLocationType, setSearchLocationType] = useState<'gym' | 'city' | 'crag' | undefined>(undefined);
+  const [searchLocationValue, setSearchLocationValue] = useState('');
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const closeSearchModal = () => {
     setSearchModalVisible(false);
+    setSearchQuery('');
+    setSearchLocationType(undefined);
+    setSearchLocationValue('');
   };
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [qrGroupData, setQrGroupData] = useState<{ id: string; name: string } | null>(null);
@@ -128,44 +134,6 @@ const ConnectionsScreen: React.FC = () => {
     }
   }, [user?.id, activeTab]);
 
-  // Friends handlers
-  const handleAddFriend = async () => {
-    if (!friendPhone.trim()) {
-      Alert.alert('Error', 'Please enter a valid phone number');
-      return;
-    }
-
-    setAddingFriend(true);
-    try {
-      await addFriend(friendPhone.trim());
-      setFriendPhone('');
-      setShowAddFriend(false);
-      Alert.alert('Success', 'Friend added successfully!');
-    } catch (error: any) {
-      if (error.message.includes('not found')) {
-        setInviteModalInitialPhone(friendPhone.trim());
-        Alert.alert(
-          'User Not Found',
-          'No user found with this phone number. Would you like to invite them to join Gym Friends?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Send Invitation',
-              onPress: () => {
-                setShowAddFriend(false);
-                setShowInviteModal(true);
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert('Error', error.message || 'Failed to add friend');
-      }
-    } finally {
-      setAddingFriend(false);
-    }
-  };
-
   const handleQRScanFriend = async (userId: string, userName: string) => {
     try {
       await addFriendInstant(userId);
@@ -217,6 +185,8 @@ const ConnectionsScreen: React.FC = () => {
   // Groups handlers
   const openSearchModal = async () => {
     setSearchQuery('');
+    setSearchLocationType(undefined);
+    setSearchLocationValue('');
     setSearchModalVisible(true);
     try {
       const publicGroups = await groupsApi.searchPublicGroups();
@@ -251,7 +221,7 @@ const ConnectionsScreen: React.FC = () => {
   const handleCreateGroup = async (groupData: {
     name: string;
     description?: string;
-    privacy: 'public' | 'private' | 'invite-only';
+    privacy: 'public' | 'private';
     locationType?: 'gym' | 'city' | 'crag';
     associatedGymId?: string;
     associatedCity?: string;
@@ -290,7 +260,7 @@ const ConnectionsScreen: React.FC = () => {
               <Text style={styles.friendEmail}>{item.email}</Text>
               {isAtGym && (
                 <View style={styles.gymBadge}>
-                  <Ionicons name="location" size={12} color="#007AFF" />
+                  <Ionicons name="location" size={12} color={colors.primary} />
                   <Text style={styles.gymText}>{currentGym.name}</Text>
                 </View>
               )}
@@ -307,7 +277,7 @@ const ConnectionsScreen: React.FC = () => {
         <View style={styles.groupCardContent}>
           <View style={styles.groupInfo}>
             <View style={styles.groupIcon}>
-              <Ionicons name="people" size={24} color="#007AFF" />
+              <Ionicons name="people" size={24} color={colors.primary} />
             </View>
             <View style={styles.groupDetails}>
               <Text style={styles.groupName}>{item.name}</Text>
@@ -331,17 +301,53 @@ const ConnectionsScreen: React.FC = () => {
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
-      <Ionicons name={activeTab === 'friends' ? 'people-outline' : 'people-circle-outline'} size={64} color="#C7C7CC" />
+      <Ionicons name={activeTab === 'friends' ? 'people-outline' : 'people-circle-outline'} size={64} color={colors.textFaded} />
       <Text style={styles.emptyStateText}>
         {activeTab === 'friends' ? 'No friends yet' : 'No groups yet'}
       </Text>
       <Text style={styles.emptyStateSubtext}>
         {activeTab === 'friends' 
-          ? 'Add friends to see their workouts and gym activity'
+          ? 'Invite friends from your contacts to see their workouts and gym activity'
           : 'Create or join a group to start connecting'}
       </Text>
     </View>
   );
+
+  const cityOptions = useMemo(() => getCanonicalCityOptions(), []);
+  const gymOptions = useMemo(() => buildGymOptions(gyms), [gyms]);
+  const cragOptions = useMemo(() => buildCragOptions(climbingAreas), [climbingAreas]);
+
+  const locationOptions = useMemo(() => {
+    if (searchLocationType === 'gym') return gymOptions;
+    if (searchLocationType === 'crag') return cragOptions;
+    if (searchLocationType === 'city') return cityOptions;
+    return [];
+  }, [searchLocationType, gymOptions, cragOptions, cityOptions]);
+
+  const filteredLocationOptions = useMemo(() => {
+    const q = searchLocationValue.trim().toLowerCase();
+    if (!q) return locationOptions.slice(0, 24);
+    return locationOptions.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 24);
+  }, [locationOptions, searchLocationValue]);
+
+  const filteredPublicGroups = publicGroups.filter((group) => {
+    const query = searchQuery.trim().toLowerCase();
+    const matchesText =
+      !query ||
+      group.name.toLowerCase().includes(query) ||
+      group.description?.toLowerCase().includes(query) ||
+      group.locationName?.toLowerCase().includes(query);
+
+    const selectedLocation = searchLocationValue.trim();
+    const matchesLocation =
+      !searchLocationType ||
+      !selectedLocation ||
+      (group.locationType === searchLocationType &&
+        makeCanonicalLocationKey(group.locationName || '', searchLocationType) ===
+          makeCanonicalLocationKey(selectedLocation, searchLocationType));
+
+    return matchesText && matchesLocation;
+  });
 
   return (
     <View style={styles.container}>
@@ -355,7 +361,7 @@ const ConnectionsScreen: React.FC = () => {
           <Ionicons 
             name={activeTab === 'friends' ? 'people' : 'people-outline'} 
             size={20} 
-            color={activeTab === 'friends' ? '#007AFF' : '#8E8E93'} 
+            color={activeTab === 'friends' ? colors.primary : colors.textMuted} 
           />
           <Text style={[styles.tabText, activeTab === 'friends' && styles.activeTabText]}>
             Friends
@@ -368,7 +374,7 @@ const ConnectionsScreen: React.FC = () => {
           <Ionicons 
             name={activeTab === 'groups' ? 'people-circle' : 'people-circle-outline'} 
             size={20} 
-            color={activeTab === 'groups' ? '#007AFF' : '#8E8E93'} 
+            color={activeTab === 'groups' ? colors.primary : colors.textMuted} 
           />
           <Text style={[styles.tabText, activeTab === 'groups' && styles.activeTabText]}>
             Groups
@@ -385,14 +391,14 @@ const ConnectionsScreen: React.FC = () => {
               style={styles.qrActionButton}
               onPress={() => setShowQRDisplay(true)}
             >
-              <Ionicons name="qr-code-outline" size={20} color="#007AFF" />
+              <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
               <Text style={styles.qrActionText}>Show My Code</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.qrActionButton}
               onPress={() => setShowQRScanner(true)}
             >
-              <Ionicons name="scan-outline" size={20} color="#007AFF" />
+              <Ionicons name="scan-outline" size={20} color={colors.primary} />
               <Text style={styles.qrActionText}>Scan Code</Text>
             </TouchableOpacity>
           </View>
@@ -408,21 +414,14 @@ const ConnectionsScreen: React.FC = () => {
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
             }
             ListHeaderComponent={
-              friends.length > 0 ? (
-                <View style={styles.header}>
-                  <Button
-                    title="Invite Friends"
-                    variant="outline"
-                    onPress={() => setShowInviteFriendsModal(true)}
-                    style={styles.addButton}
-                  />
-                  <Button
-                    title="Add Friend"
-                    onPress={() => setShowAddFriend(true)}
-                    style={styles.addButton}
-                  />
-                </View>
-              ) : null
+              <View style={styles.header}>
+                <Button
+                  title="Invite Friends"
+                  variant="outlineSecondary"
+                  onPress={() => setShowInviteFriendsModal(true)}
+                  style={styles.inviteFriendsButton}
+                />
+              </View>
             }
           />
         </>
@@ -437,7 +436,7 @@ const ConnectionsScreen: React.FC = () => {
               style={styles.qrActionButton}
               onPress={() => setShowQRScanner(true)}
             >
-              <Ionicons name="scan-outline" size={20} color="#007AFF" />
+              <Ionicons name="scan-outline" size={20} color={colors.primary} />
               <Text style={styles.qrActionText}>Scan QR Code</Text>
             </TouchableOpacity>
           </View>
@@ -472,37 +471,6 @@ const ConnectionsScreen: React.FC = () => {
       )}
 
       {/* Modals */}
-      <Modal
-        visible={showAddFriend}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowAddFriend(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Friend</Text>
-            <TouchableOpacity onPress={() => setShowAddFriend(false)}>
-              <Ionicons name="close" size={28} color="#000" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.modalContent}>
-            <Input
-              placeholder="Enter friend's phone number"
-              value={friendPhone}
-              onChangeText={setFriendPhone}
-              keyboardType="phone-pad"
-              autoCapitalize="none"
-            />
-            <Button
-              title={addingFriend ? 'Adding...' : 'Add Friend'}
-              onPress={handleAddFriend}
-              disabled={addingFriend || !friendPhone.trim()}
-              style={styles.modalButton}
-            />
-          </View>
-        </View>
-      </Modal>
-
       {/* Group Detail Modal */}
       <Modal
         visible={!!selectedGroup}
@@ -515,7 +483,7 @@ const ConnectionsScreen: React.FC = () => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{selectedGroup.name}</Text>
               <TouchableOpacity onPress={() => setSelectedGroup(null)}>
-                <Ionicons name="close" size={28} color="#000" />
+                <Ionicons name="close" size={28} color={colors.text} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalContent}>
@@ -530,7 +498,7 @@ const ConnectionsScreen: React.FC = () => {
                   style={styles.groupActionButton}
                   onPress={handleShowGroupQR}
                 >
-                  <Ionicons name="qr-code-outline" size={20} color="#007AFF" />
+                  <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
                   <Text style={styles.groupActionText}>Show My Code</Text>
                 </TouchableOpacity>
               )}
@@ -538,7 +506,7 @@ const ConnectionsScreen: React.FC = () => {
                 style={styles.groupActionButton}
                 onPress={handleOpenChat}
               >
-                <Ionicons name="chatbubbles-outline" size={20} color="#007AFF" />
+                <Ionicons name="chatbubbles-outline" size={20} color={colors.primary} />
                 <Text style={styles.groupActionText}>Go to Group Chat</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -557,7 +525,7 @@ const ConnectionsScreen: React.FC = () => {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Search Groups</Text>
             <TouchableOpacity onPress={closeSearchModal}>
-              <Ionicons name="close" size={28} color="#000" />
+              <Ionicons name="close" size={28} color={colors.text} />
             </TouchableOpacity>
           </View>
           <View style={styles.modalContent}>
@@ -567,10 +535,64 @@ const ConnectionsScreen: React.FC = () => {
               onChangeText={setSearchQuery}
               style={styles.searchInput}
             />
-            <FlatList
-              data={publicGroups.filter(g => 
-                g.name.toLowerCase().includes(searchQuery.toLowerCase())
+            <View style={styles.filterTypeContainer}>
+              {(['gym', 'city', 'crag'] as const).map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[
+                    styles.filterTypeButton,
+                    searchLocationType === type && styles.filterTypeButtonActive,
+                  ]}
+                  onPress={() => {
+                    setSearchLocationType(type);
+                    setSearchLocationValue('');
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.filterTypeText,
+                      searchLocationType === type && styles.filterTypeTextActive,
+                    ]}
+                  >
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              {searchLocationType && (
+                <TouchableOpacity
+                  style={styles.clearFilterButton}
+                  onPress={() => {
+                    setSearchLocationType(undefined);
+                    setSearchLocationValue('');
+                  }}
+                >
+                  <Text style={styles.clearFilterText}>Clear</Text>
+                </TouchableOpacity>
               )}
+            </View>
+            {searchLocationType && (
+              <View style={styles.locationFilterContainer}>
+                <Input
+                  placeholder={`Filter by ${searchLocationType}...`}
+                  value={searchLocationValue}
+                  onChangeText={setSearchLocationValue}
+                />
+                <ScrollView style={styles.locationOptionList} nestedScrollEnabled>
+                  {filteredLocationOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={styles.locationOption}
+                      onPress={() => setSearchLocationValue(option.label)}
+                    >
+                      <Ionicons name="location-outline" size={16} color={colors.textMuted} />
+                      <Text style={styles.locationOptionText}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+            <FlatList
+              data={filteredPublicGroups}
               renderItem={renderGroupCard}
               keyExtractor={(item) => item.id}
               ListEmptyComponent={
@@ -583,31 +605,17 @@ const ConnectionsScreen: React.FC = () => {
         </View>
       </Modal>
 
-      <FriendInvitationModal
-        visible={showInviteModal}
-        onClose={() => {
-          setShowInviteModal(false);
-          setInviteModalInitialPhone('');
-        }}
-        onInvitationSent={() => {
-          setShowInviteModal(false);
-          setInviteModalInitialPhone('');
-          handleRefresh();
-        }}
-        initialPhone={inviteModalInitialPhone}
-      />
-
       <Modal
         visible={showInviteFriendsModal}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setShowInviteFriendsModal(false)}
       >
-        <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#E5E5E7' }}>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: '#000' }}>Invite friends</Text>
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text }}>Invite friends</Text>
             <TouchableOpacity onPress={() => setShowInviteFriendsModal(false)} hitSlop={12}>
-              <Ionicons name="close" size={28} color="#000" />
+              <Ionicons name="close" size={28} color={colors.text} />
             </TouchableOpacity>
           </View>
           <OnboardingInviteFriends
@@ -647,13 +655,13 @@ const ConnectionsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   tab: {
     flex: 1,
@@ -665,24 +673,24 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#007AFF',
+    borderBottomColor: colors.primary,
   },
   tabText: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontWeight: '500',
   },
   activeTabText: {
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '600',
   },
   qrActionContainer: {
     flexDirection: 'row',
     padding: 16,
     gap: 12,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   qrActionButton: {
     flex: 1,
@@ -690,13 +698,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     gap: 8,
   },
   qrActionText: {
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '500',
   },
   listContainer: {
@@ -711,6 +719,11 @@ const styles = StyleSheet.create({
   },
   addButton: {
     marginBottom: 0,
+  },
+  inviteFriendsButton: {
+    marginBottom: 0,
+    borderColor: colors.secondary,
+    borderWidth: 1,
   },
   searchButton: {
     marginTop: 0,
@@ -737,13 +750,13 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   avatarText: {
-    color: 'white',
+    color: colors.background,
     fontSize: 20,
     fontWeight: '600',
   },
@@ -753,12 +766,12 @@ const styles = StyleSheet.create({
   friendName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   friendEmail: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 4,
   },
   gymBadge: {
@@ -768,7 +781,7 @@ const styles = StyleSheet.create({
   },
   gymText: {
     fontSize: 12,
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '500',
   },
   groupCard: {
@@ -787,7 +800,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -798,12 +811,12 @@ const styles = StyleSheet.create({
   groupName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 4,
   },
   groupDescription: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 4,
   },
   groupMeta: {
@@ -812,11 +825,11 @@ const styles = StyleSheet.create({
   },
   memberCount: {
     fontSize: 12,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   locationName: {
     fontSize: 12,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   emptyState: {
     flex: 1,
@@ -827,18 +840,18 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 16,
     marginBottom: 8,
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -846,12 +859,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   modalContent: {
     flex: 1,
@@ -863,28 +876,88 @@ const styles = StyleSheet.create({
   searchInput: {
     marginBottom: 16,
   },
+  filterTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  filterTypeButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterTypeButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
+  },
+  filterTypeText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  filterTypeTextActive: {
+    color: colors.primary,
+  },
+  clearFilterButton: {
+    marginLeft: 'auto',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  clearFilterText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  locationFilterContainer: {
+    marginBottom: 12,
+  },
+  locationOptionList: {
+    maxHeight: 160,
+    marginTop: -6,
+    marginBottom: 8,
+  },
+  locationOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  locationOptionText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: colors.text,
+  },
   groupDescriptionFull: {
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
     marginBottom: 16,
   },
   groupMetaFull: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 24,
   },
   groupActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     marginBottom: 12,
     gap: 12,
   },
   groupActionText: {
     fontSize: 16,
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '500',
   },
 });

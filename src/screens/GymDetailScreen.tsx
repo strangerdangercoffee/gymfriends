@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext';
 import { gymApi } from '../services/api';
 import { Gym } from '../types';
 import { GroupsStackParamList, MapStackParamList } from '../types';
+import { colors } from '../theme/colors';
 
 type GymDetailRouteProp = RouteProp<GroupsStackParamList & MapStackParamList, 'GymDetail'>;
 
@@ -82,7 +83,7 @@ const GymDetailScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   content: {
     padding: 20,
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   loadingText: {
     fontSize: 16,

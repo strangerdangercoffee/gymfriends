@@ -18,6 +18,7 @@ import { Gym, CreateScheduleForm, ScheduleStackParamList } from '../types';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
+import { colors } from '../theme/colors';
 
 type AddScheduleScreenNavigationProp = StackNavigationProp<ScheduleStackParamList, 'AddSchedule'>;
 
@@ -251,7 +252,7 @@ const AddScheduleScreen: React.FC = () => {
               daySchedule.selected && styles.checkboxActive
             ]}>
               {daySchedule.selected && (
-                <Ionicons name="checkmark" size={16} color="white" />
+                <Ionicons name="checkmark" size={16} color={colors.text} />
               )}
             </View>
             <Text style={[
@@ -451,7 +452,7 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: 'white',
+    backgroundColor: colors.text,
     alignSelf: 'flex-start',
   },
   toggleThumbActive: {
@@ -478,7 +479,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   recurrenceOptionTextActive: {
-    color: 'white',
+    color: colors.text,
   },
   customIntervalContainer: {
     flexDirection: 'row',
@@ -499,7 +500,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     textAlign: 'center',
     fontSize: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
   },
   dayRow: {
     flexDirection: 'row',
@@ -553,9 +554,9 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E7',
+    borderTopColor: colors.border,
   },
   submitButton: {
     backgroundColor: '#007AFF',
@@ -571,9 +572,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   modalTitle: {
     fontSize: 18,
@@ -616,11 +617,11 @@ const styles = StyleSheet.create({
   timeInput: {
     height: 50,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 16,
     fontSize: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
   },
 });
 

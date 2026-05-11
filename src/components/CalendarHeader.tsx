@@ -6,12 +6,16 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { CalendarView } from '../types';
+import { colors } from '../theme/colors';
 
 interface CalendarHeaderProps {
   currentView: CalendarView;
   onViewChange: (view: 'week' | 'month') => void;
   onDateChange: (date: Date) => void;
   onAddWorkout: () => void;
+  /** Month-only: hide week toggle; + opens add trip (or pass addAccessibilityLabel). */
+  variant?: 'default' | 'areaTripsMonth';
+  addAccessibilityLabel?: string;
 }
 
 const CalendarHeader: React.FC<CalendarHeaderProps> = ({
@@ -19,6 +23,8 @@ const CalendarHeader: React.FC<CalendarHeaderProps> = ({
   onViewChange,
   onDateChange,
   onAddWorkout,
+  variant = 'default',
+  addAccessibilityLabel = 'Add workout',
 }) => {
   const formatDateRange = () => {
     const { startDate, endDate, type } = currentView;
@@ -76,29 +82,37 @@ const CalendarHeader: React.FC<CalendarHeaderProps> = ({
 
       {/* Bottom Row: View Selector and Add Button */}
       <View style={styles.bottomRow}>
-        <View style={styles.viewSelector}>
-          {(['week', 'month'] as const).map((view) => (
-            <TouchableOpacity
-              key={view}
-              style={[
-                styles.viewButton,
-                currentView.type === view && styles.viewButtonActive,
-              ]}
-              onPress={() => onViewChange(view)}
-            >
-              <Text
+        {variant === 'areaTripsMonth' ? (
+          <Text style={styles.areaTripsHint}>Friends who share trips + your plans</Text>
+        ) : (
+          <View style={styles.viewSelector}>
+            {(['week', 'month'] as const).map((view) => (
+              <TouchableOpacity
+                key={view}
                 style={[
-                  styles.viewButtonText,
-                  currentView.type === view && styles.viewButtonTextActive,
+                  styles.viewButton,
+                  currentView.type === view && styles.viewButtonActive,
                 ]}
+                onPress={() => onViewChange(view)}
               >
-                {view.charAt(0).toUpperCase() + view.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+                <Text
+                  style={[
+                    styles.viewButtonText,
+                    currentView.type === view && styles.viewButtonTextActive,
+                  ]}
+                >
+                  {view.charAt(0).toUpperCase() + view.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-        <TouchableOpacity style={styles.addButton} onPress={onAddWorkout}>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={onAddWorkout}
+          accessibilityLabel={addAccessibilityLabel}
+        >
           <Text style={styles.addButtonText}>+</Text>
         </TouchableOpacity>
       </View>
@@ -108,9 +122,9 @@ const CalendarHeader: React.FC<CalendarHeaderProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
+    borderBottomColor: colors.border,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
@@ -131,12 +145,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 16,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
   },
   navButtonText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#007AFF',
+    color: colors.primary,
   },
   dateButton: {
     flex: 1,
@@ -146,11 +160,11 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#212529',
+    color: colors.text,
   },
   viewSelector: {
     flexDirection: 'row',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     padding: 2,
   },
@@ -160,15 +174,15 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   viewButtonActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
   },
   viewButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#6C757D',
+    color: colors.textMuted,
   },
   viewButtonTextActive: {
-    color: '#FFFFFF',
+    color: colors.background,
   },
   addButton: {
     width: 32,
@@ -176,12 +190,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 16,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.secondary,
   },
   addButtonText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: colors.text,
+  },
+  areaTripsHint: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textMuted,
+    paddingRight: 8,
   },
 });
 

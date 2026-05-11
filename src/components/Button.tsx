@@ -7,11 +7,12 @@ import {
   TextStyle,
   ActivityIndicator,
 } from 'react-native';
+import { colors } from '../theme/colors';
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline';
+  variant?: 'primary' | 'secondary' | 'outline' | 'outlineSecondary';
   size?: 'small' | 'medium' | 'large';
   disabled?: boolean;
   loading?: boolean;
@@ -54,7 +55,7 @@ const Button: React.FC<ButtonProps> = ({
     >
       {loading ? (
         <ActivityIndicator 
-          color={variant === 'primary' ? 'white' : '#007AFF'} 
+          color={variant === 'primary' ? colors.text : colors.secondary} 
           size="small" 
         />
       ) : (
@@ -78,15 +79,20 @@ const styles = StyleSheet.create({
   
   // Variants
   primary: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.secondary,
   },
   secondary: {
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.surface,
   },
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#007AFF',
+    borderColor: colors.primaryBorder,
+  },
+  outlineSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.secondaryBorder,
   },
   
   // Sizes
@@ -108,13 +114,16 @@ const styles = StyleSheet.create({
   
   // Text styles
   primaryText: {
-    color: 'white',
+    color: colors.text,
   },
   secondaryText: {
-    color: '#000',
+    color: colors.text,
   },
   outlineText: {
-    color: '#007AFF',
+    color: colors.primary,
+  },
+  outlineSecondaryText: {
+    color: colors.secondary,
   },
   
   smallText: {

@@ -12,44 +12,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { invitationService } from '../services/invitations';
 import Button from './Button';
-import Input from './Input';
+import ContactsPickerModal from './ContactsPickerModal';
+import { colors } from '../theme/colors';
+import { type ContactPhoneRow } from '../utils/contactsInvite';
 
 interface OnboardingInviteFriendsProps {
   onComplete: () => void;
   onSkip: () => void;
 }
 
-const normalizePhone = (value: string): string => value.replace(/\D/g, '');
-
-const isValidPhone = (value: string): boolean => {
-  const digits = normalizePhone(value);
-  return digits.length >= 10 && digits.length <= 15;
-};
-
 const OnboardingInviteFriends: React.FC<OnboardingInviteFriendsProps> = ({ onComplete, onSkip }) => {
   const { user } = useAuth();
-  const [phoneInput, setPhoneInput] = useState('');
-  const [toInvite, setToInvite] = useState<string[]>([]);
+  const [toInvite, setToInvite] = useState<ContactPhoneRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [contactsOpen, setContactsOpen] = useState(false);
 
-  const handleAdd = () => {
-    const trimmed = phoneInput.trim();
-    if (!trimmed) return;
-    const normalized = normalizePhone(trimmed);
-    if (!isValidPhone(trimmed)) {
-      Alert.alert('Invalid number', 'Please enter a valid phone number (10–15 digits).');
+  const handleContactPick = (row: ContactPhoneRow) => {
+    if (toInvite.some((c) => c.normalized === row.normalized)) {
+      Alert.alert('Already added', 'This contact is already in your invite list.');
       return;
     }
-    if (toInvite.includes(normalized)) {
-      Alert.alert('Already added', 'This number is already in the list.');
-      return;
-    }
-    setToInvite((prev) => [...prev, normalized]);
-    setPhoneInput('');
+    setToInvite((prev) => [...prev, row]);
   };
 
   const handleRemove = (normalized: string) => {
-    setToInvite((prev) => prev.filter((p) => p !== normalized));
+    setToInvite((prev) => prev.filter((c) => c.normalized !== normalized));
   };
 
   const handleSendInvitations = async () => {
@@ -57,20 +44,20 @@ const OnboardingInviteFriends: React.FC<OnboardingInviteFriendsProps> = ({ onCom
     setIsLoading(true);
     let sent = 0;
     const errors: string[] = [];
-    for (const phone of toInvite) {
+    for (const contact of toInvite) {
       try {
         await invitationService.createInvitation({
           inviterId: user.id,
           inviterName: user.name,
           inviterEmail: user.email,
-          inviteePhone: phone,
+          inviteePhone: contact.normalized,
         });
         sent += 1;
       } catch (e: any) {
         if (e.message?.includes('already has an account')) {
-          errors.push(`${phone}: already has an account`);
+          errors.push(`${contact.name}: already has an account`);
         } else {
-          errors.push(`${phone}: ${e.message || 'Failed'}`);
+          errors.push(`${contact.name}: ${e.message || 'Failed'}`);
         }
       }
     }
@@ -91,77 +78,81 @@ const OnboardingInviteFriends: React.FC<OnboardingInviteFriendsProps> = ({ onCom
     }
   };
 
-  const handleSkip = () => {
-    onSkip();
-  };
-
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={styles.iconWrap}>
-        <Ionicons name="people" size={48} color="#007AFF" />
-      </View>
-      <Text style={styles.title}>Invite friends</Text>
-      <Text style={styles.description}>
-        Add phone numbers of people you'd like to invite. They'll be added as friends when they sign up.
-      </Text>
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.iconWrap}>
+          <Ionicons name="people" size={48} color={colors.primary} />
+        </View>
+        <Text style={styles.title}>Invite friends</Text>
+        <Text style={styles.description}>
+          Choose people from your contacts to invite. They'll be added as friends when they sign up.
+        </Text>
 
-      <View style={styles.addRow}>
-        <Input
-          placeholder="Phone number"
-          value={phoneInput}
-          onChangeText={setPhoneInput}
-          keyboardType="phone-pad"
-          autoCapitalize="none"
-          style={styles.input}
-        />
         <TouchableOpacity
-          style={[styles.addButton, (!phoneInput.trim() || isLoading) && styles.addButtonDisabled]}
-          onPress={handleAdd}
-          disabled={!phoneInput.trim() || isLoading}
+          style={styles.contactsCta}
+          onPress={() => setContactsOpen(true)}
+          activeOpacity={0.85}
         >
-          <Ionicons name="add" size={24} color="#fff" />
+          <Ionicons name="book-outline" size={22} color={colors.secondary} />
+          <View style={styles.contactsCtaTextWrap}>
+            <Text style={styles.contactsCtaTitle}>Choose from contacts</Text>
+            <Text style={styles.contactsCtaSub}>Pick who you want to invite</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
         </TouchableOpacity>
-      </View>
 
-      {toInvite.length > 0 ? (
-        <>
-          <Text style={styles.listLabel}>To invite ({toInvite.length})</Text>
-          <FlatList
-            data={toInvite}
-            keyExtractor={(item) => item}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <View style={styles.listRow}>
-                <Text style={styles.listPhone}>{item}</Text>
-                <TouchableOpacity
-                  onPress={() => handleRemove(item)}
-                  style={styles.removeButton}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                >
-                  <Ionicons name="close-circle" size={22} color="#8E8E93" />
-                </TouchableOpacity>
-              </View>
-            )}
-          />
-          <Button
-            title={isLoading ? 'Sending...' : `Send invitations (${toInvite.length})`}
-            onPress={handleSendInvitations}
-            loading={isLoading}
-            disabled={isLoading}
-            style={styles.primaryButton}
-          />
-        </>
-      ) : null}
+        {toInvite.length > 0 ? (
+          <>
+            <Text style={styles.listLabel}>To invite ({toInvite.length})</Text>
+            <FlatList
+              data={toInvite}
+              keyExtractor={(item) => item.normalized}
+              scrollEnabled={false}
+              renderItem={({ item }) => (
+                <View style={styles.listRow}>
+                  <View style={styles.listRowText}>
+                    <Text style={styles.listName}>{item.name}</Text>
+                    <Text style={styles.listPhone}>{item.phoneDisplay}</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => handleRemove(item.normalized)}
+                    style={styles.removeButton}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  >
+                    <Ionicons name="close-circle" size={22} color={colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
+            <Button
+              title={isLoading ? 'Sending...' : `Send invitations (${toInvite.length})`}
+              onPress={handleSendInvitations}
+              loading={isLoading}
+              disabled={isLoading}
+              style={styles.primaryButton}
+            />
+          </>
+        ) : null}
 
-      <TouchableOpacity style={styles.skipButton} onPress={handleSkip} disabled={isLoading}>
-        <Text style={styles.skipText}>I'll do this later</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <TouchableOpacity style={styles.skipButton} onPress={onSkip} disabled={isLoading}>
+          <Text style={styles.skipText}>I'll do this later</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      <ContactsPickerModal
+        visible={contactsOpen}
+        onClose={() => setContactsOpen(false)}
+        onPick={handleContactPick}
+        keepOpenAfterPick
+        title="Choose contacts to invite"
+      />
+    </>
   );
 };
 
@@ -172,44 +163,51 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     textAlign: 'center',
     marginBottom: 12,
   },
   description: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 24,
   },
-  addRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
-  input: { flex: 1 },
-  addButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#007AFF',
+  contactsCta: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.secondaryBorder,
+    backgroundColor: colors.secondaryMuted,
+    marginBottom: 16,
   },
-  addButtonDisabled: { opacity: 0.5 },
-  listLabel: { fontSize: 14, fontWeight: '600', color: '#000', marginBottom: 8 },
+  contactsCtaTextWrap: { flex: 1 },
+  contactsCtaTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  contactsCtaSub: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  listLabel: { fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 },
   listRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     marginBottom: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  listPhone: { fontSize: 16, color: '#000' },
+  listRowText: { flex: 1 },
+  listName: { fontSize: 15, fontWeight: '600', color: colors.text },
+  listPhone: { fontSize: 13, color: colors.textMuted, marginTop: 1 },
   removeButton: { padding: 4 },
   primaryButton: { marginTop: 16, marginBottom: 24 },
   skipButton: { alignSelf: 'center', paddingVertical: 12 },
-  skipText: { fontSize: 16, color: '#8E8E93', fontWeight: '500' },
+  skipText: { fontSize: 16, color: colors.textMuted, fontWeight: '500' },
 });
 
 export default OnboardingInviteFriends;

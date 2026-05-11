@@ -132,6 +132,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userData = await userApi.getCurrentUserMinimal(userId);
       console.log('User loaded successfully:', userData?.id);
       setUser(userData);
+      // Minimal user has friends: [] / followedGyms: [] — hydrate junction IDs for Profile, presence, geofencing.
+      userApi
+        .getUserRelationships(userId)
+        .then((rel) => {
+          setUser((prev) =>
+            prev && prev.id === userId
+              ? { ...prev, friends: rel.friends, followedGyms: rel.followedGyms }
+              : prev
+          );
+        })
+        .catch((e) => console.warn('getUserRelationships failed:', e));
     } catch (error: any) {
       if (error?.code !== 'PGRST116' && !error?.message?.includes('No rows')) {
         console.error('Error loading user:', error);

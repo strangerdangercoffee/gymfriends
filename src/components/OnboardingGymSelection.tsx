@@ -10,8 +10,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 import { Gym } from '../types';
-import Card from './Card';
 import Button from './Button';
+import { colors } from '../theme/colors';
 
 interface OnboardingGymSelectionProps {
   onComplete: (selectedGymIds: string[]) => void;
@@ -22,26 +22,25 @@ const OnboardingGymSelection: React.FC<OnboardingGymSelectionProps> = ({
   onComplete,
   initialSelectedGyms = [],
 }) => {
-  const { gyms, followGym, isLoading } = useApp();
+  const { gyms, followGym } = useApp();
   const [selectedGymIds, setSelectedGymIds] = useState<string[]>(initialSelectedGyms);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Filter gyms by search (only climbing gyms are loaded)
-  const filteredGyms = gyms.filter(gym => {
-    const matchesSearch = gym.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         gym.address.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
+  const filteredGyms = gyms.filter((gym) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      gym.name.toLowerCase().includes(q) ||
+      gym.address.toLowerCase().includes(q)
+    );
   });
 
   const toggleGymSelection = async (gymId: string) => {
     const isSelected = selectedGymIds.includes(gymId);
-    
     if (isSelected) {
-      setSelectedGymIds(prev => prev.filter(id => id !== gymId));
+      setSelectedGymIds((prev) => prev.filter((id) => id !== gymId));
     } else {
-      setSelectedGymIds(prev => [...prev, gymId]);
-      // Follow the gym immediately
+      setSelectedGymIds((prev) => [...prev, gymId]);
       try {
         await followGym(gymId);
       } catch (error) {
@@ -53,7 +52,6 @@ const OnboardingGymSelection: React.FC<OnboardingGymSelectionProps> = ({
   const handleContinue = async () => {
     setIsSaving(true);
     try {
-      // Follow all selected gyms
       for (const gymId of selectedGymIds) {
         if (!initialSelectedGyms.includes(gymId)) {
           try {
@@ -73,29 +71,22 @@ const OnboardingGymSelection: React.FC<OnboardingGymSelectionProps> = ({
 
   const renderGymCard = ({ item }: { item: Gym }) => {
     const isSelected = selectedGymIds.includes(item.id);
-
     return (
-      <TouchableOpacity onPress={() => toggleGymSelection(item.id)}>
-        <Card style={[styles.gymCard, isSelected && styles.gymCardSelected]}>
-          <View style={styles.gymHeader}>
-            <View style={[styles.gymIcon, { backgroundColor: '#FF9500' }]}>
-              <Ionicons 
-                name="trending-up-outline" 
-                size={20} 
-                color="white" 
-              />
-            </View>
-            <View style={styles.gymInfo}>
-              <Text style={styles.gymName}>{item.name}</Text>
-              <Text style={styles.gymAddress}>{item.address}</Text>
-            </View>
-            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-              {isSelected && (
-                <Ionicons name="checkmark" size={20} color="white" />
-              )}
-            </View>
-          </View>
-        </Card>
+      <TouchableOpacity
+        style={[styles.gymCard, isSelected && styles.gymCardSelected]}
+        onPress={() => toggleGymSelection(item.id)}
+        activeOpacity={0.75}
+      >
+        <View style={styles.gymIcon}>
+          <Ionicons name="barbell-outline" size={20} color={isSelected ? colors.primary : colors.textMuted} />
+        </View>
+        <View style={styles.gymInfo}>
+          <Text style={[styles.gymName, isSelected && styles.gymNameSelected]}>{item.name}</Text>
+          <Text style={styles.gymAddress}>{item.address}</Text>
+        </View>
+        <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+          {isSelected && <Ionicons name="checkmark" size={16} color={colors.background} />}
+        </View>
       </TouchableOpacity>
     );
   };
@@ -104,32 +95,30 @@ const OnboardingGymSelection: React.FC<OnboardingGymSelectionProps> = ({
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.iconContainer}>
-          <Ionicons name="location" size={60} color="#007AFF" />
+          <Ionicons name="barbell" size={48} color={colors.primary} />
         </View>
         <Text style={styles.title}>Select Your Gyms</Text>
         <Text style={styles.description}>
-          Choose the climbing gyms you'd like to follow. You can always add more later!
+          Choose the climbing gyms you visit. You can always add more later!
         </Text>
       </View>
 
-      {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#8E8E93" style={styles.searchIcon} />
+        <Ionicons name="search" size={18} color={colors.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search gyms..."
+          placeholder="Search gyms…"
+          placeholderTextColor={colors.textMuted}
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholderTextColor="#8E8E93"
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color="#8E8E93" />
+            <Ionicons name="close-circle" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Gym List */}
       <FlatList
         data={filteredGyms}
         renderItem={renderGymCard}
@@ -139,17 +128,20 @@ const OnboardingGymSelection: React.FC<OnboardingGymSelectionProps> = ({
         style={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="location-outline" size={64} color="#C7C7CC" />
+            <Ionicons name="barbell-outline" size={56} color={colors.textFaded} />
             <Text style={styles.emptyText}>No gyms found</Text>
-            <Text style={styles.emptySubtext}>Try a different search or add a climbing gym</Text>
+            <Text style={styles.emptySubtext}>Try a different search term</Text>
           </View>
         }
       />
 
-      {/* Continue Button */}
       <View style={styles.footer}>
         <Button
-          title={selectedGymIds.length === 0 ? 'Skip for Now' : `Continue (${selectedGymIds.length} selected)`}
+          title={
+            selectedGymIds.length === 0
+              ? 'Skip for Now'
+              : `Continue (${selectedGymIds.length} selected)`
+          }
           onPress={handleContinue}
           loading={isSaving}
           variant={selectedGymIds.length === 0 ? 'outline' : 'primary'}
@@ -163,12 +155,13 @@ const OnboardingGymSelection: React.FC<OnboardingGymSelectionProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
     paddingHorizontal: 20,
   },
   header: {
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingTop: 8,
+    paddingBottom: 20,
   },
   iconContainer: {
     marginBottom: 16,
@@ -177,18 +170,18 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.primaryMuted,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     textAlign: 'center',
     marginBottom: 8,
   },
   description: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 22,
     paddingHorizontal: 20,
@@ -196,74 +189,78 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    gap: 10,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
-  },
-  searchIcon: {
-    marginRight: 8,
+    borderColor: colors.border,
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
   },
   list: {
     flex: 1,
   },
   listContainer: {
-    paddingBottom: 100,
+    paddingBottom: 110,
   },
   gymCard: {
-    marginBottom: 12,
-    padding: 16,
-  },
-  gymCardSelected: {
-    borderColor: '#007AFF',
-    borderWidth: 2,
-  },
-  gymHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  gymCardSelected: {
+    borderColor: colors.primaryBorder,
+    backgroundColor: colors.primaryMuted,
   },
   gymIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   gymInfo: {
     flex: 1,
   },
   gymName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
+    color: colors.textSecondary,
+    marginBottom: 3,
+  },
+  gymNameSelected: {
+    color: colors.text,
   },
   gymAddress: {
-    fontSize: 14,
-    color: '#8E8E93',
+    fontSize: 13,
+    color: colors.textMuted,
   },
   checkbox: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
-    borderColor: '#E5E5E7',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
   },
   checkboxSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   emptyState: {
     alignItems: 'center',
@@ -273,13 +270,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginTop: 16,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#C7C7CC',
-    marginTop: 8,
+    color: colors.textFaded,
+    marginTop: 6,
   },
   footer: {
     position: 'absolute',
@@ -287,9 +284,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 20,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E7',
+    borderTopColor: colors.border,
   },
   continueButton: {
     width: '100%',

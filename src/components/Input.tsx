@@ -8,6 +8,7 @@ import {
   TextStyle,
   TextInputProps,
 } from 'react-native';
+import { colors } from '../theme/colors';
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -44,7 +45,7 @@ const Input: React.FC<InputProps> = ({
           style={[styles.input, inputStyle]}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholderTextColor="#8E8E93"
+          placeholderTextColor={colors.textFaded}
           {...props}
         />
       </View>
@@ -60,33 +61,33 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#000',
+    color: colors.textSecondary,
     marginBottom: 8,
   },
   inputContainer: {
     borderWidth: 1,
-    borderColor: '#E5E5E7',
+    borderColor: colors.borderStrong,
     borderRadius: 12,
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
   input: {
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
     padding: 0,
   },
   focused: {
-    borderColor: '#007AFF',
+    borderColor: colors.primary,
     borderWidth: 2,
   },
   error: {
-    borderColor: '#FF3B30',
+    borderColor: colors.error,
     borderWidth: 2,
   },
   errorText: {
     fontSize: 14,
-    color: '#FF3B30',
+    color: colors.error,
     marginTop: 4,
   },
 });

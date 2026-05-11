@@ -272,6 +272,8 @@ export class NotificationService {
         return preferences.belayerResponses ?? true;
       case 'friend_trip_announcement':
         return preferences.friendTripAnnouncements ?? true;
+      case 'trip_invitation':
+        return preferences.friendTripAnnouncements ?? true;
       default:
         return true;
     }

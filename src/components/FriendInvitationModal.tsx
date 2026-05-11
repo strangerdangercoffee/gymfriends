@@ -13,6 +13,9 @@ import { useAuth } from '../context/AuthContext';
 import Card from './Card';
 import Input from './Input';
 import Button from './Button';
+import ContactsPickerModal from './ContactsPickerModal';
+import { colors } from '../theme/colors';
+import { normalizeInvitePhone, type ContactPhoneRow } from '../utils/contactsInvite';
 
 interface FriendInvitationModalProps {
   visible: boolean;
@@ -31,6 +34,7 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
   const { user } = useAuth();
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [contactsPickerVisible, setContactsPickerVisible] = useState(false);
 
   useEffect(() => {
     if (visible && initialPhone) {
@@ -45,13 +49,7 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
     return digitsOnly.length >= 10 && digitsOnly.length <= 15;
   };
 
-  const formatPhoneNumber = (value: string): string => {
-    const digitsOnly = value.replace(/\D/g, '');
-    if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
-      return digitsOnly.substring(1);
-    }
-    return digitsOnly;
-  };
+  const formatPhoneNumber = (value: string): string => normalizeInvitePhone(value);
 
   const handleSendInvitation = async () => {
     if (!user) {
@@ -114,10 +112,17 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
 
   const handleClose = () => {
     setPhone('');
+    setContactsPickerVisible(false);
     onClose();
   };
 
+  const handleContactPicked = (row: ContactPhoneRow) => {
+    setPhone(row.normalized);
+    setContactsPickerVisible(false);
+  };
+
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -130,7 +135,7 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
             <View style={styles.header}>
               <Text style={styles.title}>Invite a Friend</Text>
               <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color="#8E8E93" />
+                <Ionicons name="close" size={24} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -138,6 +143,18 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
               <Text style={styles.description}>
                 Invite a friend to join Gym Friends! They'll be automatically added as your friend when they sign up.
               </Text>
+
+              <TouchableOpacity
+                style={styles.contactsCta}
+                onPress={() => setContactsPickerVisible(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="people" size={20} color={colors.secondary} />
+                <Text style={styles.contactsCtaText}>Choose from contacts</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+
+              <Text style={styles.orLabel}>or enter a number</Text>
 
               <Input
                 label="Friend's Phone Number"
@@ -153,19 +170,19 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
               <View style={styles.features}>
                 <Text style={styles.featuresTitle}>What they'll get:</Text>
                 <View style={styles.featureItem}>
-                  <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                   <Text style={styles.featureText}>Free access to Gym Friends</Text>
                 </View>
                 <View style={styles.featureItem}>
-                  <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                   <Text style={styles.featureText}>Automatically added as your friend</Text>
                 </View>
                 <View style={styles.featureItem}>
-                  <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                   <Text style={styles.featureText}>See when you're at the gym</Text>
                 </View>
                 <View style={styles.featureItem}>
-                  <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                   <Text style={styles.featureText}>Coordinate workout schedules</Text>
                 </View>
               </View>
@@ -190,6 +207,13 @@ const FriendInvitationModal: React.FC<FriendInvitationModalProps> = ({
         </View>
       </View>
     </Modal>
+    <ContactsPickerModal
+      visible={contactsPickerVisible && visible}
+      onClose={() => setContactsPickerVisible(false)}
+      onPick={handleContactPicked}
+      title="Pick a contact"
+    />
+    </>
   );
 };
 
@@ -215,12 +239,12 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   title: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   closeButton: {
     padding: 4,
@@ -230,9 +254,33 @@ const styles = StyleSheet.create({
   },
   description: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: colors.textMuted,
     lineHeight: 22,
     marginBottom: 20,
+  },
+  contactsCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.secondaryBorder,
+    backgroundColor: colors.secondaryMuted,
+    marginBottom: 12,
+  },
+  contactsCtaText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  orLabel: {
+    fontSize: 13,
+    color: colors.textMuted,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   contactInput: {
     marginBottom: 20,
@@ -243,7 +291,7 @@ const styles = StyleSheet.create({
   featuresTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 12,
   },
   featureItem: {
@@ -253,7 +301,7 @@ const styles = StyleSheet.create({
   },
   featureText: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginLeft: 8,
   },
   actions: {

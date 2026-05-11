@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#050505"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -21,7 +21,10 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs location access to detect when you're at the gym.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to automatically check you in when you arrive at the gym.",
-        "UIBackgroundModes": ["location"]
+        "NSContactsUsageDescription": "Gym Friends uses your contacts so you can invite friends by phone.",
+        "UIBackgroundModes": [
+          "location"
+        ]
       },
       "usesAppleSignIn": true
     },
@@ -35,13 +38,31 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
-      ]
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
+      ],
+      "package": "com.gymfriends.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ],
       [
         "expo-location",
         {
@@ -55,7 +76,13 @@
         }
       ],
       "expo-apple-authentication",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Gym Friends to access your contacts so you can invite friends."
+        }
+      ]
     ],
     "extra": {
       "eas": {

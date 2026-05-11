@@ -1,5 +1,9 @@
 import React, { useEffect, useRef } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+} from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { notificationService } from '../services/notifications';
 import { RootTabParamList, ScheduleStackParamList, GroupsStackParamList, MapStackParamList } from '../types';
+import { colors } from '../theme/colors';
 
 // Import screens
 import AuthScreen from '../screens/AuthScreen';
@@ -20,18 +25,34 @@ import ProfileScreen from '../screens/ProfileScreen';
 import FeedScreen from '../screens/FeedScreen';
 import AreaFeedScreen from '../screens/AreaFeedScreen';
 import AreaDetailScreen from '../screens/AreaDetailScreen';
+import AreaFriendCalendarScreen from '../screens/AreaFriendCalendarScreen';
 import AreasMapScreen from '../screens/AreasMapScreen';
-import GlobeMapScreen from '../screens/GlobeMapScreen';
 import GymDetailScreen from '../screens/GymDetailScreen';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
+
+export const navigationRef = createNavigationContainerRef();
+
+function navigateToTripInvitationFromPush(data: Record<string, unknown>) {
+  if (data?.type !== 'trip_invitation' || typeof data.areaId !== 'string') return;
+  if (!navigationRef.isReady()) return;
+  const invitationId =
+    typeof data.invitationId === 'string' ? data.invitationId : undefined;
+  navigationRef.navigate('Friends' as never, {
+    screen: 'AreaDetail',
+    params: {
+      areaId: data.areaId,
+      highlightTripInvitationId: invitationId,
+    },
+  } as never);
+}
 const ScheduleStack = createStackNavigator<ScheduleStackParamList>();
 const GroupsStack = createStackNavigator<GroupsStackParamList>();
 const MapStack = createStackNavigator<MapStackParamList>();
 
 const LoadingScreen: React.FC = () => (
   <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color="#007AFF" />
+    <ActivityIndicator size="large" color={colors.primary} />
   </View>
 );
 
@@ -40,15 +61,16 @@ const ScheduleStackNavigator: React.FC = () => {
     <ScheduleStack.Navigator
       screenOptions={{
         headerStyle: {
-          backgroundColor: 'white',
+          backgroundColor: colors.background,
           borderBottomWidth: 1,
-          borderBottomColor: '#E5E5E7',
+          borderBottomColor: colors.border,
         },
         headerTitleStyle: {
           fontWeight: '600',
           fontSize: 18,
+          color: colors.text,
         },
-        headerTintColor: '#000',
+        headerTintColor: colors.primary,
       }}
     >
       <ScheduleStack.Screen 
@@ -70,15 +92,16 @@ const GroupsStackNavigator: React.FC = () => {
     <GroupsStack.Navigator
       screenOptions={{
         headerStyle: {
-          backgroundColor: 'white',
+          backgroundColor: colors.background,
           borderBottomWidth: 1,
-          borderBottomColor: '#E5E5E7',
+          borderBottomColor: colors.border,
         },
         headerTitleStyle: {
           fontWeight: '600',
           fontSize: 18,
+          color: colors.text,
         },
-        headerTintColor: '#000',
+        headerTintColor: colors.primary,
       }}
     >
       <GroupsStack.Screen 
@@ -97,14 +120,21 @@ const GroupsStackNavigator: React.FC = () => {
         options={{ title: 'Area Feeds' }}
       />
       <GroupsStack.Screen 
-        name="GlobeMap" 
-        component={GlobeMapScreen}
+        name="AreasMap" 
+        component={AreasMapScreen}
         options={{ title: 'Areas Map', headerShown: false }}
       />
       <GroupsStack.Screen 
         name="AreaDetail" 
         component={AreaDetailScreen}
         options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
+      />
+      <GroupsStack.Screen
+        name="AreaFriendCalendar"
+        component={AreaFriendCalendarScreen}
+        options={({ route }) => ({
+          title: route.params.areaName ? `${route.params.areaName} · Trips` : 'Trip calendar',
+        })}
       />
       <GroupsStack.Screen 
         name="GymDetail" 
@@ -120,26 +150,34 @@ const MapStackNavigator: React.FC = () => {
     <MapStack.Navigator
       screenOptions={{
         headerStyle: {
-          backgroundColor: 'white',
+          backgroundColor: colors.background,
           borderBottomWidth: 1,
-          borderBottomColor: '#E5E5E7',
+          borderBottomColor: colors.border,
         },
         headerTitleStyle: {
           fontWeight: '600',
           fontSize: 18,
+          color: colors.text,
         },
-        headerTintColor: '#000',
+        headerTintColor: colors.primary,
       }}
     >
       <MapStack.Screen 
         name="MapMain" 
-        component={GlobeMapScreen}
+        component={AreasMapScreen}
         options={{ title: 'Map', headerShown: false }}
       />
       <MapStack.Screen 
         name="AreaDetail" 
         component={AreaDetailScreen}
         options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
+      />
+      <MapStack.Screen
+        name="AreaFriendCalendar"
+        component={AreaFriendCalendarScreen}
+        options={({ route }) => ({
+          title: route.params.areaName ? `${route.params.areaName} · Trips` : 'Trip calendar',
+        })}
       />
       <MapStack.Screen 
         name="GymDetail" 
@@ -153,6 +191,7 @@ const MapStackNavigator: React.FC = () => {
 const TabNavigator: React.FC = () => {
   return (
     <Tab.Navigator
+      initialRouteName="Map"
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap;
@@ -173,32 +212,33 @@ const TabNavigator: React.FC = () => {
 
           return <Ionicons name={iconName} size={size} color={color} />;
         },
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: 'gray',
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          backgroundColor: 'white',
+          backgroundColor: colors.background,
           borderTopWidth: 1,
-          borderTopColor: '#E5E5E7',
+          borderTopColor: colors.border,
           paddingBottom: 5,
           paddingTop: 5,
           height: 60,
         },
         headerStyle: {
-          backgroundColor: 'white',
+          backgroundColor: colors.background,
           borderBottomWidth: 1,
-          borderBottomColor: '#E5E5E7',
+          borderBottomColor: colors.border,
         },
         headerTitleStyle: {
           fontWeight: '600',
           fontSize: 18,
+          color: colors.text,
         },
-        headerTintColor: '#000',
+        headerTintColor: colors.primary,
       })}
     >
       <Tab.Screen 
         name="Schedule" 
         component={ScheduleStackNavigator}
-        options={{ title: 'My Schedule', headerShown: false }}
+        options={{ title: 'Schedule', headerShown: false }}
       />
       <Tab.Screen 
         name="Friends" 
@@ -265,12 +305,40 @@ const AppNavigator: React.FC = () => {
     }
   }, [user?.id, hasCompletedOnboarding]);
 
+  useEffect(() => {
+    if (!user?.id || !hasCompletedOnboarding) return;
+    const sub = notificationService.addNotificationResponseReceivedListener(
+      (response) => {
+        const data = response.notification.request.content.data as Record<
+          string,
+          unknown
+        >;
+        navigateToTripInvitationFromPush(data || {});
+      }
+    );
+    return () => notificationService.removeNotificationSubscription(sub);
+  }, [user?.id, hasCompletedOnboarding]);
+
+  useEffect(() => {
+    if (!user?.id || !hasCompletedOnboarding) return;
+    const t = setTimeout(() => {
+      Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (!navigationRef.isReady()) return;
+        const data = response?.notification.request.content.data as
+          | Record<string, unknown>
+          | undefined;
+        if (data) navigateToTripInvitationFromPush(data);
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [user?.id, hasCompletedOnboarding]);
+
   if (authLoading || onboardingLoading) {
     return <LoadingScreen />;
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       {user ? (
         !hasCompletedOnboarding ? <OnboardingScreen /> : <TabNavigator />
       ) : (
@@ -285,7 +353,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
 });
 

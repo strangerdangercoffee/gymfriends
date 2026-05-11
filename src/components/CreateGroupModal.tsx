@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,22 @@ import {
   TextInput,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-import { useAuth } from '../context/AuthContext';
-import { Gym, User } from '../types';
+import { Gym } from '../types';
 import Card from './Card';
 import Button from './Button';
 import Input from './Input';
+import { colors } from '../theme/colors';
+import {
+  buildCragOptions,
+  buildGymOptions,
+  getCanonicalCityOptions,
+  makeCanonicalCityKey,
+} from '../utils/locationMatching';
 
 interface CreateGroupModalProps {
   visible: boolean;
@@ -23,12 +31,13 @@ interface CreateGroupModalProps {
   onCreate: (groupData: {
     name: string;
     description?: string;
-    privacy: 'public' | 'private' | 'invite-only';
+    privacy: 'public' | 'private';
     locationType?: 'gym' | 'city' | 'crag';
     associatedGymId?: string;
     associatedCity?: string;
     associatedCrag?: string;
     invitedUserIds: string[];
+    groupImageUri?: string;
   }) => Promise<void>;
 }
 
@@ -37,21 +46,41 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   onClose,
   onCreate,
 }) => {
-  const { friends, gyms } = useApp();
-  const { user } = useAuth();
+  const { friends, gyms, climbingAreas } = useApp();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [privacy, setPrivacy] = useState<'public' | 'private' | 'invite-only'>('private');
+  const [privacy, setPrivacy] = useState<'public' | 'private'>('private');
   const [locationType, setLocationType] = useState<'gym' | 'city' | 'crag' | undefined>(undefined);
   const [selectedGymId, setSelectedGymId] = useState<string>('');
+  const [gymQuery, setGymQuery] = useState('');
   const [city, setCity] = useState('');
+  const [selectedCityKey, setSelectedCityKey] = useState('');
   const [crag, setCrag] = useState('');
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [groupImageUri, setGroupImageUri] = useState<string | null>(null);
 
-  const followedGyms = gyms.filter(gym => 
-    user?.followedGyms?.includes(gym.id)
-  );
+  const gymOptions = useMemo(() => buildGymOptions(gyms), [gyms]);
+  const cityOptions = useMemo(() => getCanonicalCityOptions(), []);
+  const cragOptions = useMemo(() => buildCragOptions(climbingAreas), [climbingAreas]);
+
+  const filteredGymOptions = useMemo(() => {
+    const q = gymQuery.trim().toLowerCase();
+    if (!q) return gymOptions.slice(0, 20);
+    return gymOptions.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 20);
+  }, [gymOptions, gymQuery]);
+
+  const filteredCityOptions = useMemo(() => {
+    const q = city.trim().toLowerCase();
+    if (!q) return cityOptions.slice(0, 20);
+    return cityOptions.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 20);
+  }, [cityOptions, city]);
+
+  const filteredCragOptions = useMemo(() => {
+    const q = crag.trim().toLowerCase();
+    if (!q) return cragOptions.slice(0, 20);
+    return cragOptions.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 20);
+  }, [cragOptions, crag]);
 
   const handleToggleFriend = (friendId: string) => {
     setSelectedFriends(prev =>
@@ -59,6 +88,27 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
         ? prev.filter(id => id !== friendId)
         : [...prev, friendId]
     );
+  };
+
+  const handlePickGroupImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to add a group photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setGroupImageUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking group image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
   };
 
   const handleCreate = async () => {
@@ -83,15 +133,26 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
     setIsCreating(true);
     try {
+      const matchedCity =
+        locationType === 'city'
+          ? cityOptions.find((option) => option.key === makeCanonicalCityKey(city.trim()))
+          : undefined;
+      if (locationType === 'city' && (!selectedCityKey || !matchedCity || matchedCity.key !== selectedCityKey)) {
+        Alert.alert('Error', 'Please select a city from the suggestions');
+        setIsCreating(false);
+        return;
+      }
+
       await onCreate({
         name: name.trim(),
         description: description.trim() || undefined,
         privacy,
         locationType,
         associatedGymId: locationType === 'gym' ? selectedGymId : undefined,
-        associatedCity: locationType === 'city' ? city.trim() : undefined,
+        associatedCity: locationType === 'city' ? matchedCity?.label : undefined,
         associatedCrag: locationType === 'crag' ? crag.trim() : undefined,
         invitedUserIds: selectedFriends,
+        groupImageUri: groupImageUri || undefined,
       });
       
       // Reset form
@@ -100,9 +161,12 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       setPrivacy('private');
       setLocationType(undefined);
       setSelectedGymId('');
+      setGymQuery('');
       setCity('');
+      setSelectedCityKey('');
       setCrag('');
       setSelectedFriends([]);
+      setGroupImageUri(null);
       
       onClose();
       Alert.alert('Success', 'Group created successfully!');
@@ -121,9 +185,12 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       setPrivacy('private');
       setLocationType(undefined);
       setSelectedGymId('');
+      setGymQuery('');
       setCity('');
+      setSelectedCityKey('');
       setCrag('');
       setSelectedFriends([]);
+      setGroupImageUri(null);
       onClose();
     }
   };
@@ -138,7 +205,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} disabled={isCreating}>
-            <Ionicons name="close" size={24} color="#007AFF" />
+            <Ionicons name="close" size={24} color={colors.primary} />
           </TouchableOpacity>
           <Text style={styles.title}>Create Group</Text>
           <View style={{ width: 24 }} />
@@ -147,6 +214,17 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <Card style={styles.card}>
             <Text style={styles.sectionTitle}>Basic Information</Text>
+            
+            <TouchableOpacity onPress={handlePickGroupImage} style={styles.groupImageTouchable}>
+              {groupImageUri ? (
+                <Image source={{ uri: groupImageUri }} style={styles.groupImagePreview} />
+              ) : (
+                <View style={styles.groupImagePlaceholder}>
+                  <Ionicons name="camera-outline" size={32} color={colors.textMuted} />
+                  <Text style={styles.groupImagePlaceholderText}>Add group photo</Text>
+                </View>
+              )}
+            </TouchableOpacity>
             
             <Input
               label="Group Name *"
@@ -169,7 +247,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             <View style={styles.privacyContainer}>
               <Text style={styles.label}>Privacy *</Text>
               <View style={styles.privacyOptions}>
-                {(['public', 'private', 'invite-only'] as const).map((option) => (
+                {(['public', 'private'] as const).map((option) => (
                   <TouchableOpacity
                     key={option}
                     style={[
@@ -181,11 +259,10 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                     <Ionicons
                       name={
                         option === 'public' ? 'globe-outline' :
-                        option === 'private' ? 'lock-closed-outline' :
-                        'mail-outline'
+                        'lock-closed-outline'
                       }
                       size={20}
-                      color={privacy === option ? '#007AFF' : '#8E8E93'}
+                      color={privacy === option ? colors.primary : colors.textMuted}
                     />
                     <Text
                       style={[
@@ -193,7 +270,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                         privacy === option && styles.privacyOptionTextActive,
                       ]}
                     >
-                      {option === 'invite-only' ? 'Invite Only' : option.charAt(0).toUpperCase() + option.slice(1)}
+                      {option.charAt(0).toUpperCase() + option.slice(1)}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -218,8 +295,12 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   onPress={() => {
                     setLocationType(type);
                     // Clear other location fields
-                    if (type !== 'gym') setSelectedGymId('');
+                    if (type !== 'gym') {
+                      setSelectedGymId('');
+                      setGymQuery('');
+                    }
                     if (type !== 'city') setCity('');
+                    if (type !== 'city') setSelectedCityKey('');
                     if (type !== 'crag') setCrag('');
                   }}
                 >
@@ -237,59 +318,105 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
             {locationType === 'gym' && (
               <View style={styles.locationInput}>
-                <Text style={styles.label}>Select Gym *</Text>
-                <ScrollView style={styles.gymList} nestedScrollEnabled>
-                  {followedGyms.map((gym) => (
+                <Input
+                  label="Gym Name *"
+                  value={gymQuery}
+                  onChangeText={(value) => {
+                    setGymQuery(value);
+                    setSelectedGymId('');
+                  }}
+                  placeholder="Start typing a gym..."
+                  style={styles.input}
+                />
+                <ScrollView style={styles.suggestionList} nestedScrollEnabled>
+                  {filteredGymOptions.map((option) => (
                     <TouchableOpacity
-                      key={gym.id}
+                      key={option.key}
                       style={[
-                        styles.gymOption,
-                        selectedGymId === gym.id && styles.gymOptionActive,
+                        styles.suggestionOption,
+                        selectedGymId === option.key && styles.gymOptionActive,
                       ]}
-                      onPress={() => setSelectedGymId(gym.id)}
+                      onPress={() => {
+                        setSelectedGymId(option.key);
+                        setGymQuery(option.label);
+                      }}
                     >
                       <Ionicons
-                        name={selectedGymId === gym.id ? 'radio-button-on' : 'radio-button-off'}
+                        name={selectedGymId === option.key ? 'radio-button-on' : 'radio-button-off'}
                         size={20}
-                        color={selectedGymId === gym.id ? '#007AFF' : '#8E8E93'}
+                        color={selectedGymId === option.key ? colors.primary : colors.textMuted}
                       />
                       <Text
                         style={[
-                          styles.gymOptionText,
-                          selectedGymId === gym.id && styles.gymOptionTextActive,
+                          styles.suggestionOptionText,
+                          selectedGymId === option.key && styles.gymOptionTextActive,
                         ]}
                       >
-                        {gym.name}
+                        {option.label}
                       </Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
-                {followedGyms.length === 0 && (
+                {gyms.length === 0 && (
                   <Text style={styles.emptyText}>
-                    No followed gyms. Follow a gym first to associate it with a group.
+                    No gyms found.
                   </Text>
                 )}
               </View>
             )}
 
             {locationType === 'city' && (
-              <Input
-                label="City Name *"
-                value={city}
-                onChangeText={setCity}
-                placeholder="e.g., San Francisco, CA"
-                style={styles.input}
-              />
+              <View>
+                <Input
+                  label="City Name *"
+                  value={city}
+                  onChangeText={(value) => {
+                    setCity(value);
+                    setSelectedCityKey('');
+                  }}
+                  placeholder="Start typing a city..."
+                  style={styles.input}
+                />
+                <ScrollView style={styles.suggestionList} nestedScrollEnabled>
+                  {filteredCityOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={styles.suggestionOption}
+                      onPress={() => {
+                        setCity(option.label);
+                        setSelectedCityKey(option.key);
+                      }}
+                    >
+                      <Ionicons name="location-outline" size={16} color={colors.textMuted} />
+                      <Text style={styles.suggestionOptionText}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
             )}
 
             {locationType === 'crag' && (
-              <Input
-                label="Crag Name *"
-                value={crag}
-                onChangeText={setCrag}
-                placeholder="e.g., Yosemite Valley"
-                style={styles.input}
-              />
+              <View>
+                <Input
+                  label="Crag Name *"
+                  value={crag}
+                  onChangeText={setCrag}
+                  placeholder="Start typing a crag..."
+                  style={styles.input}
+                />
+                <ScrollView style={styles.suggestionList} nestedScrollEnabled>
+                  {filteredCragOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={styles.suggestionOption}
+                      onPress={() => setCrag(option.label)}
+                    >
+                      <Ionicons name="trail-sign-outline" size={16} color={colors.textMuted} />
+                      <Text style={styles.suggestionOptionText}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
             )}
           </Card>
 
@@ -330,7 +457,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                     <Ionicons
                       name={selectedFriends.includes(friend.id) ? 'checkmark-circle' : 'ellipse-outline'}
                       size={24}
-                      color={selectedFriends.includes(friend.id) ? '#007AFF' : '#C7C7CC'}
+                      color={selectedFriends.includes(friend.id) ? colors.primary : colors.textFaded}
                     />
                   </TouchableOpacity>
                 ))}
@@ -364,7 +491,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -372,14 +499,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7',
+    borderBottomColor: colors.border,
   },
   title: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   content: {
     flex: 1,
@@ -391,21 +518,44 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
     marginBottom: 8,
+  },
+  groupImageTouchable: {
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+  },
+  groupImagePreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  groupImagePlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  groupImagePlaceholderText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 4,
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginBottom: 16,
   },
   input: {
     marginBottom: 16,
+    color: colors.text,
   },
   label: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#000',
+    color: colors.text,
     marginBottom: 8,
   },
   privacyContainer: {
@@ -425,21 +575,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   privacyOptionActive: {
-    borderColor: '#007AFF',
-    backgroundColor: '#E3F2FD',
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
   },
   privacyOptionText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#8E8E93',
+    color: colors.textMuted,
     marginLeft: 6,
   },
   privacyOptionTextActive: {
-    color: '#007AFF',
+    color: colors.primary,
   },
   locationTypeContainer: {
     flexDirection: 'row',
@@ -452,52 +602,53 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: 'center',
   },
   locationTypeButtonActive: {
-    borderColor: '#007AFF',
-    backgroundColor: '#E3F2FD',
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
   },
   locationTypeText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   locationTypeTextActive: {
-    color: '#007AFF',
+    color: colors.primary,
   },
   locationInput: {
     marginTop: 8,
   },
-  gymList: {
-    maxHeight: 200,
-    marginTop: 8,
-  },
-  gymOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E5E7',
-  },
   gymOptionActive: {
-    borderColor: '#007AFF',
-    backgroundColor: '#E3F2FD',
-  },
-  gymOptionText: {
-    fontSize: 16,
-    color: '#000',
-    marginLeft: 8,
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
   },
   gymOptionTextActive: {
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '600',
+  },
+  suggestionList: {
+    maxHeight: 180,
+    marginTop: -8,
+    marginBottom: 8,
+  },
+  suggestionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 8,
+  },
+  suggestionOptionText: {
+    fontSize: 15,
+    color: colors.text,
+    marginLeft: 8,
   },
   friendsList: {
     maxHeight: 300,
@@ -510,14 +661,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#E5E5E7',
+    borderColor: colors.border,
   },
   friendOptionActive: {
-    borderColor: '#007AFF',
-    backgroundColor: '#E3F2FD',
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
   },
   friendInfo: {
     flexDirection: 'row',
@@ -528,7 +679,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -536,19 +687,19 @@ const styles = StyleSheet.create({
   friendAvatarText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: colors.background,
   },
   friendName: {
     fontSize: 16,
-    color: '#000',
+    color: colors.text,
   },
   friendNameActive: {
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '600',
   },
   emptyText: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
     fontStyle: 'italic',
     textAlign: 'center',
     paddingVertical: 16,

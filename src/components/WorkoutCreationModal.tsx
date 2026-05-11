@@ -9,12 +9,17 @@ import {
   ScrollView,
   Alert,
   Image,
+  Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { WorkoutSession, RecurringPattern, Gym } from '../types';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { groupsApi } from '../services/api';
+import { colors, dateCalendarTheme } from '../theme/colors';
+import Card from './Card';
 
 interface WorkoutCreationModalProps {
   visible: boolean;
@@ -55,6 +60,8 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
 
   const [duration, setDuration] = useState(60); // Default 1 hour
   const [startTime, setStartTime] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   // Reset form and update based on editing mode when modal opens
   useEffect(() => {
@@ -102,6 +109,13 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
     }
   }, [visible, selectedDate, selectedHour, selectedMinute, editingWorkout, followedGyms, schedules]);
 
+  useEffect(() => {
+    if (!visible) {
+      setShowDatePicker(false);
+      setShowTimePicker(false);
+    }
+  }, [visible]);
+
   // Fetch user's groups when modal opens
   useEffect(() => {
     if (visible && user?.id) {
@@ -121,14 +135,14 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
   }, [visible, user?.id]);
 
   const workoutTypes = [
-    { key: 'limit', label: 'Limit', color: '#E74C3C' },              // Max strength / recruitment
-    { key: 'power', label: 'Power', color: '#F39C12' },              // Dynamic, explosive
-    { key: 'endurance', label: 'Endurance', color: '#D35400' },      // PE + aerobic power
-    { key: 'technique', label: 'Technique', color: '#3498DB' },      // Movement, footwork, skills
-    { key: 'volume', label: 'Volume', color: '#27AE60' },            // ARC, base building
-    { key: 'projecting', label: 'Projecting', color: '#8E44AD' },    // Performance, tactics
-    { key: 'recovery', label: 'Recovery', color: '#95A5A6' },        // Mobility, yoga, prehab
-    { key: 'cardio', label: 'Cardio', color: '#96CEB4' },           // Aerobic endurance
+    { key: 'limit', label: 'Limit', color: colors.workoutTypes.limit },              // Max strength / recruitment
+    { key: 'power', label: 'Power', color: colors.workoutTypes.power },              // Dynamic, explosive
+    { key: 'endurance', label: 'Endurance', color: colors.workoutTypes.endurance },      // PE + aerobic power
+    { key: 'technique', label: 'Technique', color: colors.workoutTypes.technique },      // Movement, footwork, skills
+    { key: 'volume', label: 'Volume', color: colors.workoutTypes.volume },            // ARC, base building
+    { key: 'projecting', label: 'Projecting', color: colors.workoutTypes.projecting },    // Performance, tactics
+    { key: 'recovery', label: 'Recovery', color: colors.workoutTypes.recovery },        // Mobility, yoga, prehab
+    { key: 'cardio', label: 'Cardio', color: colors.workoutTypes.cardio },           // Aerobic endurance
   ] as const;
 
   const durationOptions = [
@@ -150,11 +164,28 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
   };
 
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString([], { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric' 
+    return date.toLocaleDateString([], {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
     });
+  };
+
+  const formatDateForInput = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  /** Parse YYYY-MM-DD as local calendar date (avoid UTC-off-by-one from `new Date("YYYY-MM-DD")`). */
+  const parseLocalDateYYYYMMDD = (yyyyMmDd: string): Date => {
+    const parts = yyyyMmDd.split('-').map((p) => parseInt(p, 10));
+    const [y, m, d] = parts;
+    if (parts.length !== 3 || [y, m, d].some((n) => Number.isNaN(n))) {
+      return new Date();
+    }
+    return new Date(y, m - 1, d);
   };
 
   const handleSave = () => {
@@ -202,6 +233,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
       presentationStyle="pageSheet"
       onRequestClose={handleClose}
     >
+      <View style={styles.modalRoot}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -225,7 +257,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
               value={title}
               onChangeText={setTitle}
               placeholder="Enter workout title"
-              placeholderTextColor="#8E8E93"
+              placeholderTextColor={colors.textMuted}
             />
           </View>
 
@@ -292,7 +324,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
                       </View>
                     </View>
                     {selectedGymId === gym.id && (
-                      <Ionicons name="checkmark-circle" size={20} color="#007AFF" />
+                      <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -304,14 +336,28 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Date & Time</Text>
             <View style={styles.dateTimeContainer}>
-              <View style={styles.dateTimeItem}>
+              <TouchableOpacity
+                style={styles.dateTimeItem}
+                onPress={() => setShowDatePicker(true)}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.dateTimeLabel}>Date</Text>
-                <Text style={styles.dateTimeValue}>{formatDate(startTime)}</Text>
-              </View>
-              <View style={styles.dateTimeItem}>
+                <View style={styles.dateTimeRow}>
+                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                  <Text style={styles.dateTimeValue}>{formatDate(startTime)}</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.dateTimeItem}
+                onPress={() => setShowTimePicker(true)}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.dateTimeLabel}>Start Time</Text>
-                <Text style={styles.dateTimeValue}>{formatTime(startTime)}</Text>
-              </View>
+                <View style={styles.dateTimeRow}>
+                  <Ionicons name="time-outline" size={18} color={colors.primary} />
+                  <Text style={styles.dateTimeValue}>{formatTime(startTime)}</Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -432,7 +478,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
                       </View>
                     </View>
                     {selectedFriends.includes(friend.id) && (
-                      <Ionicons name="checkmark-circle" size={20} color="#007AFF" />
+                      <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -471,8 +517,8 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
                   >
                     <View style={styles.friendItemContent}>
                       <View style={styles.friendAvatar}>
-                        <View style={[styles.friendAvatarPlaceholder, { backgroundColor: '#A29BFE' }]}>
-                          <Ionicons name="people" size={20} color="#FFF" />
+                        <View style={[styles.friendAvatarPlaceholder, { backgroundColor: colors.secondary }]}>
+                          <Ionicons name="people" size={20} color={colors.text} />
                         </View>
                       </View>
                       <View style={styles.friendInfo}>
@@ -488,7 +534,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
                       </View>
                     </View>
                     {selectedGroups.includes(group.id) && (
-                      <Ionicons name="checkmark-circle" size={20} color="#007AFF" />
+                      <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -504,7 +550,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
               value={notes}
               onChangeText={setNotes}
               placeholder="Add any notes about your workout..."
-              placeholderTextColor="#8E8E93"
+              placeholderTextColor={colors.textMuted}
               multiline
               numberOfLines={3}
             />
@@ -562,7 +608,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
                 }
               }}
             >
-              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+              <Ionicons name="trash-outline" size={20} color={colors.error} />
               <Text style={styles.deleteButtonText}>Delete Workout</Text>
             </TouchableOpacity>
           )}
@@ -570,14 +616,118 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
           <View style={styles.bottomSpacing} />
         </ScrollView>
       </View>
+
+      {/* Date calendar (react-native-calendars + shared theme) */}
+      <Modal
+        visible={showDatePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDatePicker(false)}
+      >
+        <View style={styles.calendarModalOverlay}>
+          <Card style={styles.calendarModal}>
+            <View style={styles.calendarHeader}>
+              <Text style={styles.calendarTitle}>Select Date</Text>
+              <TouchableOpacity onPress={() => setShowDatePicker(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              current={formatDateForInput(startTime)}
+              {...(!editingWorkout ? { minDate: formatDateForInput(new Date()) } : {})}
+              onDayPress={(day) => {
+                const newDate = parseLocalDateYYYYMMDD(day.dateString);
+                newDate.setHours(
+                  startTime.getHours(),
+                  startTime.getMinutes(),
+                  startTime.getSeconds(),
+                  startTime.getMilliseconds()
+                );
+                setStartTime(newDate);
+                setShowDatePicker(false);
+                setTimeout(() => setShowTimePicker(true), 300);
+              }}
+              markedDates={{
+                [formatDateForInput(startTime)]: {
+                  selected: true,
+                  selectedColor: colors.primary,
+                },
+              }}
+              theme={dateCalendarTheme}
+            />
+          </Card>
+        </View>
+      </Modal>
+
+      {showTimePicker && Platform.OS === 'android' && (
+        <DateTimePicker
+          value={startTime}
+          mode="time"
+          display="default"
+          is24Hour={false}
+          accentColor={colors.primary}
+          onChange={(event, date) => {
+            setShowTimePicker(false);
+            if (event.type === 'set' && date) {
+              setStartTime(date);
+            }
+          }}
+        />
+      )}
+      {showTimePicker && Platform.OS === 'ios' && (
+        <Modal
+          visible
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowTimePicker(false)}
+        >
+          <View style={styles.timePickerModalOverlay}>
+            <TouchableOpacity
+              style={styles.timePickerBackdrop}
+              activeOpacity={1}
+              onPress={() => setShowTimePicker(false)}
+            />
+            <Card style={styles.timePickerModal}>
+              <View style={styles.calendarHeader}>
+                <Text style={styles.calendarTitle}>Start Time</Text>
+                <TouchableOpacity onPress={() => setShowTimePicker(false)} hitSlop={12}>
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={startTime}
+                mode="time"
+                display="spinner"
+                themeVariant="dark"
+                accentColor={colors.primary}
+                textColor={colors.text}
+                onChange={(_, date) => {
+                  if (date) setStartTime(date);
+                }}
+              />
+              <TouchableOpacity
+                style={styles.timePickerDoneRow}
+                onPress={() => setShowTimePicker(false)}
+              >
+                <Text style={styles.timePickerDoneText}>Done</Text>
+              </TouchableOpacity>
+            </Card>
+          </View>
+        </Modal>
+      )}
+      </View>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
+  modalRoot: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -585,23 +735,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
+    borderBottomColor: colors.border,
   },
   cancelButton: {
     fontSize: 16,
-    color: '#007AFF',
+    color: colors.primary,
   },
   title: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#212529',
+    color: colors.text,
   },
   saveButton: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#007AFF',
+    color: colors.primary,
   },
   content: {
     flex: 1,
@@ -613,18 +763,18 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#212529',
+    color: colors.text,
     marginBottom: 12,
   },
   textInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#212529',
+    color: colors.text,
   },
   notesInput: {
     height: 80,
@@ -642,10 +792,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
   },
   workoutTypeButtonActive: {
-    backgroundColor: '#F0F8FF',
+    backgroundColor: colors.primaryMuted,
   },
   workoutTypeIndicator: {
     width: 8,
@@ -655,10 +805,10 @@ const styles = StyleSheet.create({
   },
   workoutTypeText: {
     fontSize: 14,
-    color: '#6C757D',
+    color: colors.textMuted,
   },
   workoutTypeTextActive: {
-    color: '#007AFF',
+    color: colors.primary,
     fontWeight: '600',
   },
   dateTimeContainer: {
@@ -667,21 +817,78 @@ const styles = StyleSheet.create({
   },
   dateTimeItem: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: colors.border,
+  },
+  dateTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   dateTimeLabel: {
     fontSize: 12,
-    color: '#6C757D',
+    color: colors.textMuted,
     marginBottom: 4,
   },
   dateTimeValue: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#212529',
+    color: colors.text,
+    flex: 1,
+  },
+  calendarModalOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  calendarModal: {
+    width: '100%',
+    maxWidth: 400,
+    padding: 20,
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.border,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  calendarTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textSecondary,
+  },
+  timePickerModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  timePickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  timePickerModal: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 28,
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.border,
+  },
+  timePickerDoneRow: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  timePickerDoneText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.primary,
   },
   durationGrid: {
     flexDirection: 'row',
@@ -693,19 +900,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   durationButtonActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   durationText: {
     fontSize: 14,
-    color: '#6C757D',
+    color: colors.textMuted,
   },
   durationTextActive: {
-    color: '#FFFFFF',
+    color: colors.background,
     fontWeight: '600',
   },
   recurringHeader: {
@@ -720,19 +927,19 @@ const styles = StyleSheet.create({
     width: 44,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#E9ECEF',
+    backgroundColor: colors.surfaceElevated,
     justifyContent: 'center',
     paddingHorizontal: 2,
   },
   toggleActive: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
   },
   toggleThumb: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
+    backgroundColor: colors.text,
+    shadowColor: colors.background,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
@@ -753,38 +960,38 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   recurringTypeButtonActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   recurringTypeText: {
     fontSize: 14,
-    color: '#6C757D',
+    color: colors.textMuted,
   },
   recurringTypeTextActive: {
-    color: '#FFFFFF',
+    color: colors.background,
     fontWeight: '600',
   },
   noGymsContainer: {
     padding: 20,
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: colors.border,
   },
   noGymsText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#6C757D',
+    color: colors.textMuted,
     marginBottom: 4,
   },
   noGymsSubtext: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   gymList: {
     gap: 8,
@@ -794,14 +1001,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: colors.border,
   },
   gymItemSelected: {
-    borderColor: '#007AFF',
-    backgroundColor: '#F0F8FF',
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
   },
   gymItemContent: {
     flexDirection: 'row',
@@ -812,11 +1019,11 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: '#E9ECEF',
+    backgroundColor: colors.surfaceElevated,
     marginRight: 12,
   },
   gymIndicatorSelected: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
   },
   gymInfo: {
     flex: 1,
@@ -824,31 +1031,31 @@ const styles = StyleSheet.create({
   gymName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1C1C1E',
+    color: colors.text,
     marginBottom: 2,
   },
   gymNameSelected: {
-    color: '#007AFF',
+    color: colors.primary,
   },
   gymAddress: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   deleteButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     marginTop: 24,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#FF3B30',
+    borderColor: colors.error,
   },
   deleteButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FF3B30',
+    color: colors.error,
     marginLeft: 8,
   },
   bottomSpacing: {
@@ -857,30 +1064,30 @@ const styles = StyleSheet.create({
   loadingContainer: {
     padding: 20,
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
   },
   loadingText: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   noFriendsContainer: {
     padding: 20,
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: colors.border,
   },
   noFriendsText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#6C757D',
+    color: colors.textMuted,
     marginBottom: 4,
   },
   noFriendsSubtext: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
   friendsList: {
     gap: 8,
@@ -890,14 +1097,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: colors.border,
   },
   friendItemSelected: {
-    borderColor: '#007AFF',
-    backgroundColor: '#F0F8FF',
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted,
   },
   friendItemContent: {
     flexDirection: 'row',
@@ -916,12 +1123,12 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   friendAvatarText: {
-    color: '#FFFFFF',
+    color: colors.background,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -931,15 +1138,15 @@ const styles = StyleSheet.create({
   friendName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1C1C1E',
+    color: colors.text,
     marginBottom: 2,
   },
   friendNameSelected: {
-    color: '#007AFF',
+    color: colors.primary,
   },
   friendEmail: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: colors.textMuted,
   },
 });
 

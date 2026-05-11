@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { workoutHistoryGenerator } from '../services/workoutHistoryGenerator';
 import { useAuth } from '../context/AuthContext';
+import { colors } from '../theme/colors';
 
 export const WorkoutHistoryDebugger: React.FC = () => {
   const { user } = useAuth();
@@ -139,7 +140,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ccc',
   },
   buttonText: {
-    color: 'white',
+    color: colors.text,
     textAlign: 'center',
     fontWeight: '600',
   },

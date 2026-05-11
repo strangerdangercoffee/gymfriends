@@ -1,3 +1,4 @@
+import { readAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import { supabase } from './supabase';
 import { workoutHistoryGenerator } from './workoutHistoryGenerator';
 import { workoutInvitationService } from './workoutInvitations';
@@ -24,6 +25,7 @@ import {
   UserAreaPlan,
   TripInvitation
 } from '../types';
+import { getBelayerRequestFeedTitle } from '../utils/belayerRequestTitles';
 
 const FETCH_TIMEOUT_MS = 12000;
 
@@ -166,6 +168,38 @@ export const userApi = {
     return transformUserFromDB(data);
   },
 
+  /**
+   * Friends + followed gym IDs only (no extra users row fetch).
+   * Used after getCurrentUserMinimal so Profile / geofencing have real IDs immediately.
+   */
+  async getUserRelationships(userId: string): Promise<{ friends: string[]; followedGyms: string[] }> {
+    try {
+      const [friendsResult, gymsResult] = await Promise.all([
+        (supabase as any)
+          .from('user_friendships')
+          .select('friend_id')
+          .eq('user_id', userId),
+        (supabase as any)
+          .from('user_gym_follows')
+          .select('gym_id')
+          .eq('user_id', userId),
+      ]);
+
+      const friends =
+        friendsResult.error ? [] : (friendsResult.data || []).map((f: any) => f.friend_id);
+      const followedGyms =
+        gymsResult.error ? [] : (gymsResult.data || []).map((g: any) => g.gym_id);
+
+      if (friendsResult.error) console.error('Error fetching friends:', friendsResult.error);
+      if (gymsResult.error) console.error('Error fetching followed gyms:', gymsResult.error);
+
+      return { friends, followedGyms };
+    } catch (e) {
+      console.error('getUserRelationships:', e);
+      return { friends: [], followedGyms: [] };
+    }
+  },
+
   async getCurrentUser(): Promise<User | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
@@ -288,6 +322,25 @@ export const userApi = {
 
     if (error) throw error;
     return (data || []).map((item: any) => transformUserFromDB(item.users));
+  },
+
+  /** Display names for user IDs (e.g. co-travelers not in friends list). RLS may limit rows. */
+  async getNamesForIds(userIds: string[]): Promise<Record<string, string>> {
+    const unique = [...new Set(userIds.filter(Boolean))];
+    if (unique.length === 0) return {};
+    const { data, error } = await (supabase as any)
+      .from('users')
+      .select('id, name')
+      .in('id', unique);
+    if (error) {
+      console.warn('getNamesForIds:', error);
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const row of data || []) {
+      if (row?.id && row?.name) out[row.id] = row.name;
+    }
+    return out;
   },
 
   async addFriend(userId: string, friendPhone: string): Promise<void> {
@@ -675,6 +728,16 @@ export const userAreaVisitsApi = {
     }
   },
 
+  async getByUser(userId: string): Promise<UserAreaVisit[]> {
+    const { data, error } = await (supabase as any)
+      .from('user_area_visits')
+      .select('*')
+      .eq('user_id', userId)
+      .order('last_seen_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(transformUserAreaVisitFromDB);
+  },
+
   async getActiveVisitsByArea(areaId: string): Promise<UserAreaVisit[]> {
     const { data, error } = await (supabase as any)
       .from('user_area_visits')
@@ -853,7 +916,7 @@ export const userAreaPlansApi = {
 
   async getFriendsPlansAtArea(userId: string, areaId: string, startDate: string, endDate: string): Promise<{ plan: UserAreaPlan; inviterName?: string }[]> {
     const friends = await userApi.getUserFriends(userId);
-    const friendIds = friends.map(f => f.id);
+    const friendIds = friends.filter((f) => f.privacySettings?.shareSchedule === true).map((f) => f.id);
     if (friendIds.length === 0) return [];
     const { data, error } = await (supabase as any)
       .from('user_area_plans')
@@ -928,6 +991,31 @@ export const tripInvitationsApi = {
         return;
       }
       throw e;
+    }
+  },
+
+  /**
+   * Accept invite and mirror host trip onto invitee's user_area_plans
+   * (same area + dates → shows as "My trip" on Friend calendar).
+   */
+  async acceptAndMirrorTrip(
+    invitationId: string,
+    inviteeUserId: string,
+    hostTrip: UserAreaPlan
+  ): Promise<{ planAdded: boolean }> {
+    await tripInvitationsApi.respond(invitationId, 'accepted');
+    try {
+      await userAreaPlansApi.create(
+        inviteeUserId,
+        hostTrip.areaId,
+        hostTrip.startDate,
+        hostTrip.endDate,
+        hostTrip.notes?.trim() || undefined
+      );
+      return { planAdded: true };
+    } catch (e) {
+      console.warn('acceptAndMirrorTrip: plan create failed after accept', e);
+      return { planAdded: false };
     }
   },
 };
@@ -1462,19 +1550,75 @@ function transformWorkoutHistoryFromDB(data: any): WorkoutHistory {
   };
 }
 
+function contentTypeFromPickerUri(uri: string): string {
+  const path = uri.split('?')[0].toLowerCase();
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+// Avatar uploads use Edge Functions (service role). RN Blob has no arrayBuffer(); use expo-file-system/legacy Base64 read.
+// Deploy: supabase functions deploy upload-avatar && supabase functions deploy upload-group-avatar
+export const avatarsApi = {
+  async uploadUserAvatar(_userId: string, fileUri: string): Promise<string> {
+    const imageBase64 = await readAsStringAsync(fileUri, { encoding: EncodingType.Base64 });
+    const contentType = contentTypeFromPickerUri(fileUri);
+    const { data, error } = await supabase.functions.invoke<{ publicUrl?: string; error?: string }>(
+      'upload-avatar',
+      { body: { imageBase64, contentType } }
+    );
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Avatar upload failed. Deploy: supabase functions deploy upload-avatar'
+      );
+    }
+    const url = data?.publicUrl;
+    if (!url) {
+      const msg = (data as { error?: string })?.error || 'Avatar upload returned no URL';
+      throw new Error(msg);
+    }
+    return url;
+  },
+  async uploadGroupAvatar(groupId: string, fileUri: string): Promise<string> {
+    const imageBase64 = await readAsStringAsync(fileUri, { encoding: EncodingType.Base64 });
+    const contentType = contentTypeFromPickerUri(fileUri);
+    const { data, error } = await supabase.functions.invoke<{ publicUrl?: string; error?: string }>(
+      'upload-group-avatar',
+      { body: { imageBase64, contentType, groupId } }
+    );
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Group avatar upload failed. Deploy: supabase functions deploy upload-group-avatar'
+      );
+    }
+    const url = data?.publicUrl;
+    if (!url) {
+      const msg = (data as { error?: string })?.error || 'Group avatar upload returned no URL';
+      throw new Error(msg);
+    }
+    return url;
+  },
+};
+
 // Groups API functions
 export const groupsApi = {
+  normalizeGroupPrivacy(privacy: string): 'public' | 'private' {
+    return privacy === 'public' ? 'public' : 'private';
+  },
   async createGroup(
     creatorUserId: string,
     groupData: {
       name: string;
       description?: string;
-      privacy: 'public' | 'private' | 'invite-only';
+      privacy: 'public' | 'private';
       locationType?: 'gym' | 'city' | 'crag';
       associatedGymId?: string;
       associatedCity?: string;
       associatedCrag?: string;
       invitedUserIds: string[];
+      avatarUrl?: string;
     }
   ): Promise<any> {
     // Create the group
@@ -1487,6 +1631,7 @@ export const groupsApi = {
       associated_gym_id: groupData.associatedGymId || null,
       associated_city: groupData.associatedCity || null,
       associated_crag: groupData.associatedCrag || null,
+      avatar_url: groupData.avatarUrl || null,
     };
 
     const { data: group, error: groupError } = await (supabase as any)
@@ -1587,6 +1732,7 @@ export const groupsApi = {
           associated_gym_id,
           associated_city,
           associated_crag,
+          avatar_url,
           created_at
         )
       `)
@@ -1655,11 +1801,12 @@ export const groupsApi = {
           id: item.groups.group_id,
           name: item.groups.name,
           description: item.groups.description,
-          privacy: item.groups.privacy,
+          privacy: groupsApi.normalizeGroupPrivacy(item.groups.privacy),
           locationType: item.groups.location_type,
           locationName: item.groups.associated_gym_id
             ? gymNamesMap.get(item.groups.associated_gym_id)
             : item.groups.associated_city || item.groups.associated_crag || undefined,
+          avatarUrl: item.groups.avatar_url || undefined,
           memberCount: memberCountsMap.get(item.group_id) || 0,
           role: item.role,
         };
@@ -1667,6 +1814,18 @@ export const groupsApi = {
       .filter((group: any) => group !== null);
 
     return groupsWithCounts;
+  },
+
+  async updateGroup(groupId: string, updates: { name?: string; description?: string; privacy?: 'public' | 'private'; avatarUrl?: string }): Promise<void> {
+    const dbData: any = {};
+    if (updates.name !== undefined) dbData.name = updates.name;
+    if (updates.description !== undefined) dbData.description = updates.description;
+    if (updates.privacy !== undefined) dbData.privacy = updates.privacy;
+    if (updates.avatarUrl !== undefined) dbData.avatar_url = updates.avatarUrl;
+    if (Object.keys(dbData).length === 0) return;
+    dbData.updated_at = new Date().toISOString();
+    const { error } = await (supabase as any).from('groups').update(dbData).eq('group_id', groupId);
+    if (error) throw error;
   },
 
   async getGroupMembers(groupId: string): Promise<any[]> {
@@ -1706,7 +1865,8 @@ export const groupsApi = {
         location_type,
         associated_gym_id,
         associated_city,
-        associated_crag
+        associated_crag,
+        avatar_url
       `)
       .eq('privacy', 'public');
 
@@ -1744,9 +1904,10 @@ export const groupsApi = {
           id: group.group_id,
           name: group.name,
           description: group.description,
-          privacy: group.privacy,
+          privacy: groupsApi.normalizeGroupPrivacy(group.privacy),
           locationType: group.location_type,
           locationName,
+          avatarUrl: group.avatar_url || undefined,
           memberCount: count || 0,
           role: 'member' as const, // Default for search results
         };
@@ -3115,20 +3276,19 @@ export const belayerRequestApi = {
     const inviterName = user?.name || 'Someone';
 
     // Format message
-    const urgencyText = post.urgency === 'now' ? 'right now' : 
-      post.scheduledTime ? `on ${new Date(post.scheduledTime).toLocaleString()}` : 'soon';
-    
-    const climbingTypeText = post.climbingType === 'any' ? 'climbing' : post.climbingType;
-    const requestTypeText = post.postType === 'belayer_request' ? 'belayer' : 'rally pads';
+    const urgencyText =
+      post.urgency === 'now'
+        ? 'right now'
+        : post.scheduledTime
+          ? `on ${new Date(post.scheduledTime).toLocaleString()}`
+          : 'soon';
 
-    let messageText = `${inviterName} is looking for a ${requestTypeText} for ${climbingTypeText} ${urgencyText}`;
-    if (post.targetRoute) {
-      messageText += ` on ${post.targetRoute}`;
-    }
-    if (post.targetGrade) {
-      messageText += ` (${post.targetGrade})`;
-    }
-    messageText += `. ${post.content}`;
+    const headline = getBelayerRequestFeedTitle(
+      inviterName,
+      post.postType,
+      post.climbingType
+    );
+    const messageText = `${headline} (${urgencyText}). ${post.content}`;
 
     // Send to each group chat
     for (const groupId of groupIds) {

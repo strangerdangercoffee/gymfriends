@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, Camera, BarcodeScanningResult } from 'expo-camera';
 import { useAuth } from '../context/AuthContext';
+import { colors } from '../theme/colors';
 
 interface QRCodeScannerModalProps {
   visible: boolean;
@@ -49,48 +50,56 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     setIsProcessing(true);
 
     try {
-      console.log('Scanned QR code data:', data);
+      // Parse QR payload — supports two formats:
+      //   1. URL format (current): https://testflight.apple.com/join/...?gf_type=...&gf_userId=...
+      //   2. Legacy JSON format:   {"type":"gymfriends_user","userId":"...","name":"..."}
+      let qrData: Record<string, string>;
 
-      // If mode is 'any', pass raw data to callback
-      if (mode === 'any') {
-        // Check if onScan accepts a string (for group QR codes)
-        if (onScan.length === 1) {
-          try {
-            await (onScan as (data: string) => Promise<void>)(data);
-            // If successful, close the scanner
-            handleClose();
-            return;
-          } catch (error) {
-            // Let the error propagate to the outer catch block
-            throw error;
+      if (data.startsWith('http')) {
+        const url = new URL(data);
+        const gfType = url.searchParams.get('gf_type');
+        if (!gfType) {
+          Alert.alert('Invalid QR Code', 'This is not a valid GymFriends QR code.');
+          resetScanner();
+          return;
+        }
+        qrData = { type: gfType };
+        url.searchParams.forEach((value, key) => {
+          if (key.startsWith('gf_') && key !== 'gf_type') {
+            // Strip the gf_ prefix so downstream code sees the same keys as the legacy format
+            qrData[key.slice(3)] = value;
           }
+        });
+      } else {
+        qrData = JSON.parse(data);
+      }
+
+      // If mode is 'any', pass the raw string data to callback (group QR handling)
+      if (mode === 'any') {
+        if (onScan.length === 1) {
+          // Re-serialise extracted payload so group handler gets consistent JSON
+          await (onScan as (data: string) => Promise<void>)(JSON.stringify(qrData));
+          handleClose();
+          return;
         }
       }
 
-      // Parse QR code data for user mode
-      const qrData = JSON.parse(data);
-      console.log('Parsed QR data:', qrData);
-
       // Validate QR code format for user mode
       if (qrData.type !== 'gymfriends_user' || !qrData.userId) {
-        console.error('Invalid QR code format:', qrData);
         Alert.alert('Invalid QR Code', 'This is not a valid GymFriends user QR code.');
         resetScanner();
         return;
       }
 
       // Check if user is scanning their own code
-      console.log('Checking user IDs - Current:', user?.id, 'Scanned:', qrData.userId);
       if (qrData.userId === user?.id) {
         Alert.alert('Oops!', 'You cannot add yourself as a friend!');
         resetScanner();
         return;
       }
 
-      // Call the onScan callback to add the friend
-      console.log('Calling onScan with:', { friendId: qrData.userId, name: qrData.name });
       await (onScan as (userId: string, userName: string) => Promise<void>)(qrData.userId, qrData.name);
-      
+
     } catch (error) {
       console.error('Error scanning QR code:', error);
       Alert.alert('Error', 'Failed to process QR code. Please try again.');
@@ -119,7 +128,7 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
       <Modal visible={visible} animationType="slide">
         <View style={styles.container}>
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#007AFF" />
+            <ActivityIndicator size="large" color={colors.primary} />
             <Text style={styles.loadingText}>Requesting camera permission...</Text>
           </View>
         </View>
@@ -135,11 +144,11 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
             <View style={{ width: 40 }} />
             <Text style={styles.headerTitle}>Scan QR Code</Text>
             <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-              <Ionicons name="close" size={28} color="#000" />
+              <Ionicons name="close" size={28} color={colors.text} />
             </TouchableOpacity>
           </View>
           <View style={styles.permissionContainer}>
-            <Ionicons name="camera-off" size={64} color="#C7C7CC" />
+            <Ionicons name="camera-off" size={64} color={colors.textFaded} />
             <Text style={styles.permissionTitle}>Camera Access Required</Text>
             <Text style={styles.permissionText}>
               Please grant camera permission to scan QR codes.
@@ -164,7 +173,7 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           <View style={{ width: 40 }} />
           <Text style={styles.headerTitle}>Scan QR Code</Text>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-            <Ionicons name="close" size={28} color="#FFF" />
+            <Ionicons name="close" size={28} color={colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -201,7 +210,7 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
                 {/* Processing Indicator */}
                 {isProcessing && (
                   <View style={styles.processingContainer}>
-                    <ActivityIndicator size="large" color="#007AFF" />
+                    <ActivityIndicator size="large" color={colors.primary} />
                     <Text style={styles.processingText}>Processing...</Text>
                   </View>
                 )}
@@ -209,7 +218,7 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
                 {/* Success Indicator */}
                 {scanned && !isProcessing && (
                   <View style={styles.successContainer}>
-                    <Ionicons name="checkmark-circle" size={64} color="#34C759" />
+                    <Ionicons name="checkmark-circle" size={64} color={colors.success} />
                     <Text style={styles.successText}>Scanned!</Text>
                   </View>
                 )}
@@ -220,7 +229,7 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
             {/* Bottom Dark Area with Instructions */}
             <View style={[styles.overlaySection, styles.bottomSection]}>
               <View style={styles.instructionsBox}>
-                <Ionicons name="scan" size={32} color="#FFF" />
+                <Ionicons name="scan" size={32} color={colors.text} />
                 <Text style={styles.instructionTitle}>Position QR Code</Text>
                 <Text style={styles.instructionText}>
                   Align the QR code within the frame to scan
@@ -237,7 +246,7 @@ const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -256,7 +265,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#FFF',
+    color: colors.text,
   },
   closeButton: {
     padding: 8,
@@ -286,7 +295,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 40,
     height: 40,
-    borderColor: '#007AFF',
+    borderColor: colors.primary,
   },
   topLeft: {
     top: 0,
@@ -325,8 +334,8 @@ const styles = StyleSheet.create({
   },
   scanLine: {
     height: 2,
-    backgroundColor: '#007AFF',
-    shadowColor: '#007AFF',
+    backgroundColor: colors.primary,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
     shadowRadius: 4,
@@ -339,14 +348,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: colors.surface,
     borderRadius: 8,
   },
   processingText: {
     marginTop: 12,
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: colors.text,
   },
   successContainer: {
     position: 'absolute',
@@ -356,14 +365,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: colors.surface,
     borderRadius: 8,
   },
   successText: {
     marginTop: 12,
     fontSize: 18,
     fontWeight: '700',
-    color: '#34C759',
+    color: colors.success,
   },
   bottomSection: {
     justifyContent: 'flex-start',
@@ -376,13 +385,13 @@ const styles = StyleSheet.create({
   instructionTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#FFF',
+    color: colors.text,
     marginTop: 16,
     marginBottom: 8,
   },
   instructionText: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
   },
@@ -390,36 +399,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
   },
   permissionContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: colors.background,
   },
   permissionTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#000',
+    color: colors.text,
     marginTop: 24,
     marginBottom: 12,
   },
   permissionText: {
     fontSize: 16,
-    color: '#666',
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 32,
   },
   permissionButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.secondary,
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 12,
@@ -427,7 +436,7 @@ const styles = StyleSheet.create({
   permissionButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFF',
+    color: colors.text,
   },
 });
 
