@@ -9,7 +9,8 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { groupsApi, chatApi, userAreaPlansApi } from '../services/api';
+import { groupsApi, chatApi, userAreaPlansApi, calendarBusyBlocksApi, CalendarBusyBlock } from '../services/api';
+import { hasCalendarAccess, syncUpcomingEvents } from '../services/googleCalendar';
 import { Schedule, ScheduleStackParamList, WorkoutSession, WorkoutHistory, CalendarView, CreateScheduleForm, WorkoutInvitationWithResponses, CreateWorkoutInvitationData, UserAreaPlan } from '../types';
 import CalendarHeader from '../components/CalendarHeader';
 import CalendarGrid from '../components/CalendarGrid';
@@ -47,7 +48,7 @@ const ScheduleScreen: React.FC = () => {
   } = useApp();
   const { user } = useAuth();
   const [userTrips, setUserTrips] = useState<UserAreaPlan[]>([]);
-  
+
   const loadUserTrips = useCallback(() => {
     if (!user?.id) return;
     userAreaPlansApi.getByUser(user.id).then(setUserTrips).catch(() => setUserTrips([]));
@@ -66,6 +67,47 @@ const ScheduleScreen: React.FC = () => {
   // Calendar state
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentView, setCurrentView] = useState<'week' | 'month'>('week');
+  const [gcalBusyBlocks, setGcalBusyBlocks] = useState<CalendarBusyBlock[]>([]);
+  const [isRefreshingGcal, setIsRefreshingGcal] = useState(false);
+
+  // Helper: (re)fetch GCal busy blocks for a 6-week window centred on currentDate
+  const fetchGcalBusyBlocks = useCallback(
+    (date: Date, userId: string) => {
+      const windowStart = new Date(date);
+      windowStart.setDate(date.getDate() - 14);
+      windowStart.setHours(0, 0, 0, 0);
+      const windowEnd = new Date(windowStart);
+      windowEnd.setDate(windowStart.getDate() + 42);
+      return calendarBusyBlocksApi
+        .getForUser(userId, windowStart, windowEnd)
+        .then(setGcalBusyBlocks)
+        .catch((err) => console.warn('[ScheduleScreen] GCal busy blocks error:', err));
+    },
+    []
+  );
+
+  // Fetch GCal busy blocks whenever currentDate or user changes
+  useEffect(() => {
+    if (!user?.id) return;
+    fetchGcalBusyBlocks(currentDate, user.id);
+  }, [user?.id, currentDate, fetchGcalBusyBlocks]);
+
+  // Pull-to-refresh: sync calendar then reload busy blocks
+  const handleCalendarRefresh = useCallback(async () => {
+    if (!user?.id) return;
+    setIsRefreshingGcal(true);
+    try {
+      const hasAccess = await hasCalendarAccess(user.id);
+      if (hasAccess) {
+        await syncUpcomingEvents(user.id);
+      }
+      await fetchGcalBusyBlocks(currentDate, user.id);
+    } catch (err) {
+      console.warn('[ScheduleScreen] Pull-to-refresh GCal error:', err);
+    } finally {
+      setIsRefreshingGcal(false);
+    }
+  }, [user?.id, currentDate, fetchGcalBusyBlocks]);
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showInvitationModal, setShowInvitationModal] = useState(false);
@@ -190,11 +232,34 @@ const ScheduleScreen: React.FC = () => {
 
   // Handle time slot press - simple click opens workout modal for new workout
   const handleTimeSlotPress = (date: Date, hour: number, minute: number) => {
-    setEditingWorkout(null); // Clear any editing workout
-    setSelectedDate(date);
-    setSelectedHour(hour);
-    setSelectedMinute(minute);
-    setShowWorkoutModal(true);
+    // Check if the selected time overlaps a Google Calendar busy block
+    const slotStart = new Date(date);
+    slotStart.setHours(hour, minute, 0, 0);
+    const slotEnd = new Date(slotStart);
+    slotEnd.setMinutes(slotEnd.getMinutes() + 30);
+
+    const conflictBlock = gcalBusyBlocks.find((b) => b.startTime < slotEnd && b.endTime > slotStart);
+
+    const openModal = () => {
+      setEditingWorkout(null);
+      setSelectedDate(date);
+      setSelectedHour(hour);
+      setSelectedMinute(minute);
+      setShowWorkoutModal(true);
+    };
+
+    if (conflictBlock) {
+      Alert.alert(
+        'Calendar Conflict',
+        "You have something else scheduled during this time. Do you still want to add a workout?",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue Anyway', onPress: openModal },
+        ]
+      );
+    } else {
+      openModal();
+    }
   };
 
   // Handle workout press
@@ -514,10 +579,13 @@ const ScheduleScreen: React.FC = () => {
       <CalendarGrid
         currentDate={currentDate}
         workouts={allWorkouts}
+        busyBlocks={gcalBusyBlocks}
         onTimeSlotPress={handleTimeSlotPress}
         onWorkoutPress={handleWorkoutPress}
         onDayPress={handleDayPress}
         viewType={currentView}
+        onRefresh={handleCalendarRefresh}
+        isRefreshing={isRefreshingGcal}
       />
 
       {/* Workout Creation Modal */}

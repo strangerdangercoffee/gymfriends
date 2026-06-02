@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, useMemo } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { supabase } from '../services/supabase';
+import { hasCalendarAccess, syncUpcomingEvents } from '../services/googleCalendar';
 import { userApi, gymApi, scheduleApi, presenceApi, workoutHistoryApi, workoutInvitationApi, chatApi, groupsApi, climbingAreasApi, userAreaFollowsApi, offlineQueueRunner } from '../services/api';
 import { offlineQueue } from '../services/offlineQueue';
 import { workoutHistoryGenerator } from '../services/workoutHistoryGenerator';
@@ -92,6 +93,40 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     });
     return () => sub.remove();
   }, []);
+
+  // Sync Google Calendar when app comes to foreground (throttled — at most once per 15 min)
+  useEffect(() => {
+    if (!user?.id) return;
+    const userId = user.id;
+
+    let lastSyncAt = 0;
+    const SYNC_THROTTLE_MS = 15 * 60 * 1000; // 15 minutes
+
+    const runSync = async () => {
+      const now = Date.now();
+      if (now - lastSyncAt < SYNC_THROTTLE_MS) return;
+      lastSyncAt = now;
+      try {
+        const hasAccess = await hasCalendarAccess(userId);
+        if (hasAccess) {
+          syncUpcomingEvents(userId).catch((err) =>
+            console.warn('[GCal foreground sync] error:', err)
+          );
+        }
+      } catch (err) {
+        console.warn('[GCal foreground sync] hasCalendarAccess error:', err);
+      }
+    };
+
+    // Run once on mount (catches the first app open / user login)
+    runSync();
+
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') runSync();
+    });
+
+    return () => sub.remove();
+  }, [user?.id]);
 
   const startAutoCheckIn = async () => {
     if (!user) return;

@@ -2846,6 +2846,26 @@ export const areaFeedApi = {
       throw error;
     }
 
+    const postIds: string[] = (data || []).map((p: any) => p.post_id).filter(Boolean);
+    const commentCountByPost: Record<string, number> = {};
+    if (postIds.length > 0) {
+      try {
+        const { data: countRows, error: countErr } = await (supabase as any).rpc(
+          'post_comment_counts_for_feed',
+          { p_post_ids: postIds }
+        );
+        if (!countErr && Array.isArray(countRows)) {
+          for (const row of countRows) {
+            if (row?.post_id != null) {
+              commentCountByPost[String(row.post_id)] = Number(row.comment_count) || 0;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('post_comment_counts_for_feed RPC unavailable or failed:', e);
+      }
+    }
+
     // Log for debugging
     console.log('Area feed query result:', { gymId, cragName, postType, count: data?.length || 0 });
 
@@ -2916,6 +2936,7 @@ export const areaFeedApi = {
           quarantined: post.quarantined,
           metadata: post.metadata || {},
           responseCount,
+          commentCount: commentCountByPost[String(post.post_id)] ?? 0,
           createdAt: post.created_at,
           updatedAt: post.updated_at,
           deletedAt: post.deleted_at,
@@ -2960,6 +2981,18 @@ export const areaFeedApi = {
       availableResponders = responses.filter((r: any) => r.status === 'available');
     }
 
+    let commentCount = 0;
+    try {
+      const { count } = await (supabase as any)
+        .from('post_comments')
+        .select('*', { count: 'exact', head: true })
+        .eq('post_id', postId)
+        .is('deleted_at', null);
+      commentCount = count ?? 0;
+    } catch {
+      commentCount = 0;
+    }
+
     return {
       postId: data.post_id,
       authorUserId: data.author_user_id,
@@ -2982,6 +3015,7 @@ export const areaFeedApi = {
       quarantined: data.quarantined,
       metadata: data.metadata || {},
       availableResponders,
+      commentCount,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       deletedAt: data.deleted_at,
@@ -3048,6 +3082,8 @@ export const areaFeedApi = {
       reportCount: 0,
       quarantined: false,
       metadata: data.metadata || {},
+      responseCount: 0,
+      commentCount: 0,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
@@ -3075,6 +3111,8 @@ export const areaFeedApi = {
           reportCount: 0,
           quarantined: false,
           metadata: post.metadata || {},
+          responseCount: 0,
+          commentCount: 0,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -3541,6 +3579,104 @@ export const notificationPreferencesApi = {
       feedMentions: data.feed_mentions,
       // Trip planning
       friendTripAnnouncements: data.friend_trip_announcements,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  },
+};
+
+// ─── Calendar Busy Blocks ──────────────────────────────────────────────────────
+
+export interface CalendarBusyBlock {
+  id: string;
+  userId: string;
+  startTime: Date;
+  endTime: Date;
+  source: 'google' | 'manual';
+  eventTitle: string | null;
+}
+
+export const calendarBusyBlocksApi = {
+  /**
+   * Fetch calendar_busy_blocks for a user within a time window.
+   * RLS ensures you can only read blocks for yourself or friends
+   * whose share_schedule is enabled.
+   */
+  async getForUser(
+    userId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<CalendarBusyBlock[]> {
+    const { data, error } = await (supabase as any)
+      .from('calendar_busy_blocks')
+      .select('id, user_id, start_time, end_time, source, event_title')
+      .eq('user_id', userId)
+      .gte('start_time', startDate.toISOString())
+      .lt('start_time', endDate.toISOString())
+      .order('start_time', { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      startTime: new Date(row.start_time),
+      endTime: new Date(row.end_time),
+      source: row.source,
+      eventTitle: row.event_title ?? null,
+    }));
+  },
+};
+
+// ── Post Comments ─────────────────────────────────────────────────────────────
+export const postCommentsApi = {
+  /** Fetch non-deleted comments for a post, oldest-first, joined with author name/avatar. */
+  async getComments(postId: string): Promise<import('../types').PostComment[]> {
+    const { data, error } = await (supabase as any)
+      .from('post_comments')
+      .select(`
+        id, post_id, author_user_id, content, created_at, updated_at,
+        users!post_comments_author_user_id_fkey (name, avatar)
+      `)
+      .eq('post_id', postId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      postId: row.post_id,
+      authorUserId: row.author_user_id,
+      authorName: row.users?.name ?? undefined,
+      authorAvatar: row.users?.avatar ?? undefined,
+      content: row.content,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  },
+
+  /** Add a comment. Returns the created comment with author info. */
+  async addComment(
+    postId: string,
+    userId: string,
+    content: string
+  ): Promise<import('../types').PostComment> {
+    const { data, error } = await (supabase as any)
+      .from('post_comments')
+      .insert({ post_id: postId, author_user_id: userId, content })
+      .select(`
+        id, post_id, author_user_id, content, created_at, updated_at,
+        users!post_comments_author_user_id_fkey (name, avatar)
+      `)
+      .single();
+
+    if (error) throw error;
+    return {
+      id: data.id,
+      postId: data.post_id,
+      authorUserId: data.author_user_id,
+      authorName: data.users?.name ?? undefined,
+      authorAvatar: data.users?.avatar ?? undefined,
+      content: data.content,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };

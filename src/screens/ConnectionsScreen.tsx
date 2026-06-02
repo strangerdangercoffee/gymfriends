@@ -204,8 +204,17 @@ const ConnectionsScreen: React.FC = () => {
     if (!selectedGroup) return;
     const groupId = selectedGroup.id;
     const groupName = selectedGroup.name;
-    setSelectedGroup(null); // Close the modal
-    navigation.navigate('GroupChat', {
+    setSelectedGroup(null);
+    navigation.navigate('GroupChat', { groupId, groupName });
+  };
+
+  const handleViewGroupSchedule = () => {
+    if (!selectedGroup) return;
+    const groupId = selectedGroup.id;
+    const groupName = selectedGroup.name;
+    setSelectedGroup(null);
+    navigation.navigate('GroupSchedule', {
+      mode: 'group',
       groupId,
       groupName,
     });
@@ -240,13 +249,25 @@ const ConnectionsScreen: React.FC = () => {
     }
   };
 
+  const handleFriendPress = (friend: User) => {
+    navigation.navigate('FriendSchedule', {
+      mode: 'friend',
+      userId: friend.id,
+      userName: friend.name,
+    });
+  };
+
   const renderFriendCard = ({ item }: { item: User }) => {
     const currentGym = getFriendCurrentGym(item.id);
     const isAtGym = !!currentGym;
 
     return (
       <Card style={styles.friendCard}>
-        <TouchableOpacity style={styles.friendCardContent}>
+        <TouchableOpacity
+          style={styles.friendCardContent}
+          onPress={() => handleFriendPress(item)}
+          activeOpacity={0.75}
+        >
           <View style={styles.friendInfo}>
             {item.avatar ? (
               <Image source={{ uri: item.avatar }} style={styles.avatar} />
@@ -266,6 +287,7 @@ const ConnectionsScreen: React.FC = () => {
               )}
             </View>
           </View>
+          <Ionicons name="calendar-outline" size={18} color={colors.textFaded} />
         </TouchableOpacity>
       </Card>
     );
@@ -502,6 +524,13 @@ const ConnectionsScreen: React.FC = () => {
                   <Text style={styles.groupActionText}>Show My Code</Text>
                 </TouchableOpacity>
               )}
+              <TouchableOpacity
+                style={styles.groupActionButton}
+                onPress={handleViewGroupSchedule}
+              >
+                <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                <Text style={styles.groupActionText}>View Group Schedule</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.groupActionButton}
                 onPress={handleOpenChat}

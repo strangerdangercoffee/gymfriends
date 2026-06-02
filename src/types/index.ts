@@ -174,6 +174,9 @@ export type GroupsStackParamList = {
   AreaDetail: { areaId: string; highlightTripInvitationId?: string };
   AreaFriendCalendar: { areaId: string; areaName: string };
   GymDetail: { gymId: string };
+  // Availability / Find Time screens
+  FriendSchedule: { mode: 'friend'; userId: string; userName: string };
+  GroupSchedule: { mode: 'group'; groupId: string; groupName: string };
 };
 
 // Component props types
@@ -527,7 +530,7 @@ export interface AreaFeedPost {
   postType: 'belayer_request' | 'rally_pads_request' | 'lost_found' | 'discussion' | 'general' | 'trip_announcement';
   title: string;
   content: string;
-  climbingType?: 'lead' | 'top_rope' | 'bouldering' | 'any';
+  climbingType?: 'lead' | 'top_rope' | 'bouldering' | 'traditional' | 'any';
   targetRoute?: string;
   targetGrade?: string;
   scheduledTime?: string; // ISO timestamp, null for "now"
@@ -536,6 +539,8 @@ export interface AreaFeedPost {
   quarantined: boolean;
   metadata?: Record<string, any>;
   responseCount?: number; // Populated when fetching
+  /** Non-deleted `post_comments` rows; set on feed load via batch RPC. */
+  commentCount?: number;
   availableResponders?: BelayerRequestResponse[]; // For inviter view
   createdAt: string;
   updatedAt: string;
@@ -561,6 +566,17 @@ export interface PostReport {
   reporterUserId: string;
   reason: string;
   createdAt: string;
+}
+
+export interface PostComment {
+  id: string;
+  postId: string;
+  authorUserId: string;
+  authorName?: string;
+  authorAvatar?: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface NotificationPreferences {

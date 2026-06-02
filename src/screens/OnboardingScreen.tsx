@@ -13,12 +13,14 @@ import OnboardingClimbingProfile from '../components/OnboardingClimbingProfile';
 import OnboardingGymSelection from '../components/OnboardingGymSelection';
 import OnboardingCragSelection from '../components/OnboardingCragSelection';
 import OnboardingInviteFriends from '../components/OnboardingInviteFriends';
+import OnboardingCalendarStep from '../components/OnboardingCalendarStep';
 import { colors } from '../theme/colors';
 
-type StepType = 'phone' | 'climbing-profile' | 'gym-selection' | 'crag-selection' | 'invite-friends';
+type StepType = 'phone' | 'climbing-profile' | 'gym-selection' | 'crag-selection' | 'invite-friends' | 'calendar';
 
 const STEPS: StepType[] = [
   'phone',
+  'calendar',
   'climbing-profile',
   'gym-selection',
   'crag-selection',
@@ -97,6 +99,13 @@ const OnboardingScreen: React.FC = () => {
         return (
           <OnboardingCragSelection
             onComplete={handleNext}
+          />
+        );
+      case 'calendar':
+        return (
+          <OnboardingCalendarStep
+            onComplete={handleNext}
+            onSkip={handleNext}
           />
         );
       case 'invite-friends':

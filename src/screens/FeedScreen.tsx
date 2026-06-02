@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { useLocation } from '../context/LocationContext';
 import { userAreaVisitsApi } from '../services/api';
-import { UserAreaVisit } from '../types';
+import { UserAreaVisit, AreaFeedPost } from '../types';
 import Button from '../components/Button';
 import BelayerRequestModal from '../components/BelayerRequestModal';
 import AreaFeed from '../components/AreaFeed';
@@ -38,6 +38,7 @@ const FeedScreen: React.FC = () => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedFeed, setSelectedFeed] = useState<FeedTarget | null>(null);
   const [showBelayerRequestModal, setShowBelayerRequestModal] = useState(false);
+  const [pendingNewPost, setPendingNewPost] = useState<AreaFeedPost | null>(null);
   const [areaVisits, setAreaVisits] = useState<UserAreaVisit[]>([]);
   const isUsingLocation = hasPermissions && !!currentLocation;
 
@@ -220,10 +221,10 @@ const FeedScreen: React.FC = () => {
         )}
       </View>
 
-      {/* Post Request Button */}
+      {/* Post creation button */}
       <View style={styles.actionBar}>
         <Button
-          title="Looking for a Partner"
+          title="New Post"
           onPress={() => setShowBelayerRequestModal(true)}
           disabled={!selectedFeed}
           style={styles.postButton}
@@ -234,9 +235,15 @@ const FeedScreen: React.FC = () => {
       {/* Area Feed */}
       {selectedFeed ? (
         selectedFeed.type === 'gym' ? (
-          <AreaFeed gymId={selectedFeed.id} postType="belayer_request" />
+          <AreaFeed
+            gymId={selectedFeed.id}
+            pendingNewPost={pendingNewPost}
+          />
         ) : (
-          <AreaFeed areaId={selectedFeed.id} />
+          <AreaFeed
+            areaId={selectedFeed.id}
+            pendingNewPost={pendingNewPost}
+          />
         )
       ) : (
         <View style={styles.emptyState}>
@@ -251,7 +258,10 @@ const FeedScreen: React.FC = () => {
       <BelayerRequestModal
         visible={showBelayerRequestModal}
         onClose={() => setShowBelayerRequestModal(false)}
-        onSuccess={() => setShowBelayerRequestModal(false)}
+        onSuccess={(post) => {
+          setPendingNewPost(post);
+          setShowBelayerRequestModal(false);
+        }}
         initialGymId={selectedFeed?.type === 'gym' ? selectedFeed.id : undefined}
         initialAreaId={selectedFeed?.type === 'area' ? selectedFeed.id : undefined}
         contextName={selectedFeed?.name}

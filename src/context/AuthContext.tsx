@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useRef, ReactNod
 import * as AuthSession from 'expo-auth-session';
 import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import * as WebBrowser from 'expo-web-browser';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../services/supabase';
 import { userApi } from '../services/api';
 import { notificationService } from '../services/notifications';
@@ -11,6 +13,62 @@ import { Linking, Platform } from 'react-native';
 
 // Complete the auth session for better UX
 WebBrowser.maybeCompleteAuthSession();
+
+/** Stable deep link for Supabase OAuth on dev client / standalone (avoid gymfriends://<lan-ip>:8081/... unless allowlisted). */
+const NATIVE_OAUTH_REDIRECT = 'gymfriends://auth/callback';
+
+function isExpoGo(): boolean {
+  return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+}
+
+/**
+ * Redirect URI Supabase must allowlist. Expo Go → `exp://…` (no custom scheme).
+ * Dev/prod native → `gymfriends://auth/callback`.
+ */
+function getOAuthRedirectUri(): string {
+  if (Platform.OS === 'web') {
+    return AuthSession.makeRedirectUri({ scheme: 'gymfriends', path: 'auth/callback' });
+  }
+  if (
+    [ExecutionEnvironment.Bare, ExecutionEnvironment.Standalone].includes(Constants.executionEnvironment)
+  ) {
+    return NATIVE_OAUTH_REDIRECT;
+  }
+  // Expo Go: do not pass `scheme: 'gymfriends'` — StoreClient ignores it but can confuse linking; use default exp://
+  return AuthSession.makeRedirectUri({ path: 'auth/callback' });
+}
+
+type OAuthBrowserOutcome =
+  | { kind: 'system-browser' }
+  | { kind: 'auth-session'; result: Awaited<ReturnType<typeof WebBrowser.openAuthSessionAsync>> };
+
+/**
+ * On Expo Go, `openAuthSessionAsync` uses ASWebAuthenticationSession with only the redirect URL’s *scheme*.
+ * Handing off to `exp://…` from that in-app web view often shows “Safari cannot open the page because the address is invalid.”
+ * Opening the Supabase authorize URL in the **system** browser lets the OS route `exp://` back to Expo Go.
+ */
+async function openSupabaseOAuthBrowser(authUrl: string, redirectTo: string): Promise<OAuthBrowserOutcome> {
+  if (isExpoGo()) {
+    if (__DEV__) {
+      console.info('[OAuth Expo Go] Add this exact redirect URL in Supabase → Authentication → URL Configuration:', redirectTo);
+    }
+    await Linking.openURL(authUrl);
+    return { kind: 'system-browser' };
+  }
+  const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectTo);
+  return { kind: 'auth-session', result };
+}
+
+function generateOAuthNonce(): string {
+  const bytes = new Uint8Array(16);
+  const c = globalThis.crypto;
+  if (c?.getRandomValues) {
+    c.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -425,11 +483,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signInWithGoogle = async (): Promise<void> => {
     try {
       setIsLoading(true);
-      
-      const redirectTo = AuthSession.makeRedirectUri({
-        scheme: 'gymfriends',
-        path: 'auth/callback',
-      });
+
+      const redirectTo = getOAuthRedirectUri();
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -445,41 +500,45 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (error) throw error;
 
-      if (data.url) {
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          redirectTo
-        );
+      const authUrl = data.url;
+      if (!authUrl || !/^https?:\/\//i.test(authUrl)) {
+        throw new Error('Could not start Google sign-in. Check Supabase auth settings and try again.');
+      }
 
-        console.log('OAuth result:', result.type, result.url ? '(has url)' : '(no url)');
+      const outcome = await openSupabaseOAuthBrowser(authUrl, redirectTo);
 
-        if (result.type === 'success') {
-          let urlToUse = result.url;
-          if (!urlToUse) {
-            urlToUse = await Linking.getInitialURL() ?? undefined;
-            if (urlToUse) console.log('Using OAuth URL from Linking.getInitialURL()');
-          }
-          if (urlToUse) {
-            const sessionResult = await createSessionFromUrl(urlToUse);
-            if (sessionResult?.user) {
-              await loadUser(sessionResult.user.id);
-              return;
-            }
-            console.warn('Could not create session from OAuth URL - user may need to try again');
-          }
-          setIsLoading(false);
-          if (!urlToUse) {
-            console.warn('No callback URL from browser or Linking - session may be set when Linking fires');
-          }
-        } else if (result.type === 'cancel') {
-          setIsLoading(false);
-          return;
-        } else {
-          setIsLoading(false);
-          throw new Error('OAuth flow was not completed');
+      if (outcome.kind === 'system-browser') {
+        setIsLoading(false);
+        return;
+      }
+
+      const result = outcome.result;
+      console.log('OAuth result:', result.type, result.url ? '(has url)' : '(no url)');
+
+      if (result.type === 'success') {
+        let urlToUse = result.url;
+        if (!urlToUse) {
+          urlToUse = (await Linking.getInitialURL()) ?? undefined;
+          if (urlToUse) console.log('Using OAuth URL from Linking.getInitialURL()');
         }
+        if (urlToUse) {
+          const sessionResult = await createSessionFromUrl(urlToUse);
+          if (sessionResult?.user) {
+            await loadUser(sessionResult.user.id);
+            return;
+          }
+          console.warn('Could not create session from OAuth URL - user may need to try again');
+        }
+        setIsLoading(false);
+        if (!urlToUse) {
+          console.warn('No callback URL from browser or Linking - session may be set when Linking fires');
+        }
+      } else if (result.type === 'cancel') {
+        setIsLoading(false);
+        return;
       } else {
         setIsLoading(false);
+        throw new Error('OAuth flow was not completed');
       }
     } catch (error) {
       console.error('Error signing in with Google:', error);
@@ -492,11 +551,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signInWithApple = async (): Promise<void> => {
     try {
       setIsLoading(true);
-      
-      const redirectTo = AuthSession.makeRedirectUri({
-        scheme: 'gymfriends',
-        path: 'auth/callback',
-      });
+
+      if (Platform.OS === 'ios' && (await AppleAuthentication.isAvailableAsync())) {
+        const nonce = generateOAuthNonce();
+        let credential: Awaited<ReturnType<typeof AppleAuthentication.signInAsync>>;
+        try {
+          credential = await AppleAuthentication.signInAsync({
+            requestedScopes: [
+              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+              AppleAuthentication.AppleAuthenticationScope.EMAIL,
+            ],
+            nonce,
+          });
+        } catch (e: any) {
+          if (e?.code === 'ERR_REQUEST_CANCELED') {
+            setIsLoading(false);
+            return;
+          }
+          throw e;
+        }
+
+        const identityToken = credential.identityToken;
+        if (!identityToken) {
+          setIsLoading(false);
+          throw new Error('Apple Sign In did not return an identity token');
+        }
+
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'apple',
+          token: identityToken,
+          nonce,
+        });
+
+        if (error) throw error;
+        if (data.user) {
+          await loadUser(data.user.id);
+          return;
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      const redirectTo = getOAuthRedirectUri();
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'apple',
@@ -508,31 +604,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (error) throw error;
 
-      if (data.url) {
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          redirectTo
-        );
+      const authUrl = data.url;
+      if (!authUrl || !/^https?:\/\//i.test(authUrl)) {
+        throw new Error('Could not start Apple sign-in. Check Supabase auth settings and try again.');
+      }
 
-        console.log('OAuth result:', result.type, result.url ? '(has url)' : '(no url)');
+      const outcome = await openSupabaseOAuthBrowser(authUrl, redirectTo);
 
-        if (result.type === 'success' && result.url) {
-          const sessionResult = await createSessionFromUrl(result.url);
-          if (sessionResult?.user) {
-            await loadUser(sessionResult.user.id);
-            return;
-          }
-          console.warn('Could not create session from OAuth URL - user may need to try again');
-          setIsLoading(false);
-        } else if (result.type === 'cancel') {
-          setIsLoading(false);
+      if (outcome.kind === 'system-browser') {
+        setIsLoading(false);
+        return;
+      }
+
+      const result = outcome.result;
+      console.log('OAuth result:', result.type, result.url ? '(has url)' : '(no url)');
+
+      if (result.type === 'success' && result.url) {
+        const sessionResult = await createSessionFromUrl(result.url);
+        if (sessionResult?.user) {
+          await loadUser(sessionResult.user.id);
           return;
-        } else {
-          setIsLoading(false);
-          throw new Error('OAuth flow was not completed');
         }
+        console.warn('Could not create session from OAuth URL - user may need to try again');
+        setIsLoading(false);
+      } else if (result.type === 'cancel') {
+        setIsLoading(false);
+        return;
       } else {
         setIsLoading(false);
+        throw new Error('OAuth flow was not completed');
       }
     } catch (error) {
       console.error('Error signing in with Apple:', error);

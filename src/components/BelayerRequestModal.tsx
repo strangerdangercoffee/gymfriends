@@ -14,17 +14,20 @@ import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { belayerRequestApi, groupsApi } from '../services/api';
-import { CreateBelayerRequestData } from '../types';
+import { AreaFeedPost } from '../types';
 import { getBelayerRequestFeedTitle } from '../utils/belayerRequestTitles';
 import Card from './Card';
 import Button from './Button';
 import Input from './Input';
 import { colors, dateCalendarTheme } from '../theme/colors';
 
+type AllPostType = 'belayer_request' | 'rally_pads_request' | 'lost_found' | 'general';
+type BelayerClimbingType = 'lead' | 'top_rope' | 'traditional';
+
 interface BelayerRequestModalProps {
   visible: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (post: AreaFeedPost) => void;
   /** Outdoor climbing area — mutually exclusive with initialGymId */
   initialAreaId?: string;
   /** Gym feed — mutually exclusive with initialAreaId */
@@ -32,6 +35,26 @@ interface BelayerRequestModalProps {
   /** Shown as read-only context (e.g. gym or area name) */
   contextName?: string;
 }
+
+const POST_TYPE_CONFIG: {
+  type: AllPostType;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+}[] = [
+  { type: 'belayer_request', label: 'Belayer', icon: 'person' },
+  { type: 'rally_pads_request', label: 'Rally Pads', icon: 'cube' },
+  { type: 'lost_found', label: 'Lost & Found', icon: 'search' },
+  { type: 'general', label: 'General', icon: 'chatbubble-ellipses' },
+];
+
+const BELAYER_CLIMBING_TYPES: { value: BelayerClimbingType; label: string }[] = [
+  { value: 'lead', label: 'Lead' },
+  { value: 'top_rope', label: 'Top Rope' },
+  { value: 'traditional', label: 'Traditional' },
+];
+
+const isPartnerRequest = (pt: AllPostType) =>
+  pt === 'belayer_request' || pt === 'rally_pads_request';
 
 const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
   visible,
@@ -47,20 +70,21 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
   const [loadingGroups, setLoadingGroups] = useState(false);
 
   // Post type
-  const [postType, setPostType] = useState<'belayer_request' | 'rally_pads_request'>('belayer_request');
+  const [postType, setPostType] = useState<AllPostType>('belayer_request');
 
-  // Climbing details
-  const [climbingType, setClimbingType] = useState<'lead' | 'top_rope' | 'bouldering' | 'any'>('any');
-  
-  // Timing
+  // Climbing details (partner request types only)
+  const [climbingType, setClimbingType] = useState<BelayerClimbingType>('lead');
+
+  // Timing (partner request types only)
   const [urgency, setUrgency] = useState<'now' | 'scheduled'>('now');
   const [scheduledDateTime, setScheduledDateTime] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  
+
   // Content
+  const [userTitle, setUserTitle] = useState(''); // for lost_found / general
   const [content, setContent] = useState('');
-  
+
   // Audience
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [postToArea, setPostToArea] = useState(true);
@@ -71,9 +95,19 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
     }
   }, [visible, user?.id]);
 
+  // When switching to rally_pads, bouldering is the only option — auto-select it
+  const handlePostTypeChange = (type: AllPostType) => {
+    setPostType(type);
+    if (type === 'rally_pads_request') {
+      // climbingType not used for rally pads; no action needed
+    } else if (type === 'belayer_request') {
+      // Reset to lead if somehow switching back
+      setClimbingType('lead');
+    }
+  };
+
   const loadUserGroups = async () => {
     if (!user?.id) return;
-    
     setLoadingGroups(true);
     try {
       const groups = await groupsApi.getUserGroups(user.id);
@@ -86,13 +120,9 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
   };
 
   const handleToggleGroup = (groupId: string) => {
-    setSelectedGroups(prev => {
-      if (prev.includes(groupId)) {
-        return prev.filter(id => id !== groupId);
-      } else {
-        return [...prev, groupId];
-      }
-    });
+    setSelectedGroups(prev =>
+      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+    );
   };
 
   const handleSave = async () => {
@@ -108,56 +138,78 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
       return;
     }
 
-    if (urgency === 'scheduled') {
+    if (!isPartnerRequest(postType) && !userTitle.trim()) {
+      Alert.alert('Error', 'Please enter a title');
+      return;
+    }
+
+    if (isPartnerRequest(postType) && urgency === 'scheduled') {
       if (!scheduledDateTime || scheduledDateTime < new Date()) {
         Alert.alert('Error', 'Please select a valid future date and time');
         return;
       }
     }
 
-    if (selectedGroups.length === 0 && !postToArea) {
+    if (isPartnerRequest(postType) && selectedGroups.length === 0 && !postToArea) {
       Alert.alert('Error', 'Please select at least one audience (groups or area feed)');
       return;
     }
 
     setSaving(true);
     try {
-      // Format scheduled time if provided
       let scheduledTimeISO: string | undefined;
-      if (urgency === 'scheduled' && scheduledDateTime) {
+      if (isPartnerRequest(postType) && urgency === 'scheduled' && scheduledDateTime) {
         scheduledTimeISO = scheduledDateTime.toISOString();
       }
 
-      const generatedTitle = getBelayerRequestFeedTitle(user?.name, postType, climbingType);
+      const effectiveClimbingType =
+        postType === 'rally_pads_request' ? 'bouldering' : climbingType;
 
-      const requestData: CreateBelayerRequestData = {
+      const generatedTitle = isPartnerRequest(postType)
+        ? getBelayerRequestFeedTitle(user?.name, postType as any, effectiveClimbingType)
+        : userTitle.trim();
+
+      const requestData = {
         gymId: initialGymId,
         areaId: initialAreaId,
         postType,
         title: generatedTitle,
         content: content.trim(),
-        climbingType,
+        climbingType: isPartnerRequest(postType) ? effectiveClimbingType : undefined,
         scheduledTime: scheduledTimeISO,
-        urgency,
-        audienceGroups: selectedGroups.length > 0 ? selectedGroups : undefined,
+        urgency: isPartnerRequest(postType) ? urgency : 'now',
+        audienceGroups: isPartnerRequest(postType) && selectedGroups.length > 0 ? selectedGroups : undefined,
         audienceArea: postToArea ? (initialAreaId ? 'crag' : 'gym') : undefined,
       };
 
-      await belayerRequestApi.createBelayerRequest(user.id, requestData);
+      const createdPost: AreaFeedPost = await belayerRequestApi.createBelayerRequest(
+        user.id,
+        requestData
+      );
 
-      Alert.alert('Success', 'Belayer request posted');
-      
+      const successLabel =
+        postType === 'lost_found'
+          ? 'Lost & Found post created'
+          : postType === 'general'
+          ? 'Post created'
+          : 'Request posted';
+      Alert.alert('Success', successLabel);
+
+      // Reset form
       setContent('');
+      setUserTitle('');
       setScheduledDateTime(new Date());
       setSelectedGroups([]);
       setPostToArea(true);
       setUrgency('now');
-      
-      onSuccess?.();
+      setPostType('belayer_request');
+      setClimbingType('lead');
+
+      onSuccess?.(createdPost);
       onClose();
     } catch (error) {
-      console.error('Error creating belayer request:', error);
-      Alert.alert('Error', 'Failed to create belayer request');
+      console.error('Error creating post:', error);
+      Alert.alert('Error', 'Failed to create post. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -170,10 +222,6 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
     return `${year}-${month}-${day}`;
   };
 
-  /**
-   * Parse YYYY-MM-DD as a local calendar date. `new Date("YYYY-MM-DD")` is UTC midnight and
-   * becomes the previous day in many US timezones.
-   */
   const parseLocalDateYYYYMMDD = (yyyyMmDd: string): Date => {
     const parts = yyyyMmDd.split('-').map((p) => parseInt(p, 10));
     const [y, m, d] = parts;
@@ -183,133 +231,207 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
     return new Date(y, m - 1, d);
   };
 
+  const modalTitle =
+    postType === 'lost_found'
+      ? 'Lost & Found'
+      : postType === 'general'
+      ? 'New Post'
+      : 'Find Climbing Partner';
+
   return (
     <Modal visible={visible} transparent animationType="slide">
       <View style={styles.overlay}>
         <Card style={styles.card}>
           <View style={styles.header}>
-            <Text style={styles.title}>Find Climbing Partner</Text>
+            <Text style={styles.title}>{modalTitle}</Text>
             <TouchableOpacity onPress={onClose}>
               <Ionicons name="close" size={24} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            {/* Post Type */}
+
+            {/* ── Post Type ──────────────────────────────────────────── */}
             <View style={styles.section}>
-              <Text style={styles.label}>Request Type</Text>
+              <Text style={styles.label}>Post Type</Text>
               <View style={styles.typeButtons}>
-                <TouchableOpacity
-                  style={[styles.typeButton, postType === 'belayer_request' && styles.typeButtonActive]}
-                  onPress={() => setPostType('belayer_request')}
-                >
-                  <Ionicons name="person" size={20} color={postType === 'belayer_request' ? colors.text : colors.textMuted} />
-                  <Text style={[styles.typeButtonText, postType === 'belayer_request' && styles.typeButtonTextActive]}>
-                    Belayer
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.typeButton, postType === 'rally_pads_request' && styles.typeButtonActive]}
-                  onPress={() => setPostType('rally_pads_request')}
-                >
-                  <Ionicons name="cube" size={20} color={postType === 'rally_pads_request' ? colors.text : colors.textMuted} />
-                  <Text style={[styles.typeButtonText, postType === 'rally_pads_request' && styles.typeButtonTextActive]}>
-                    Rally Pads
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {contextName ? (
-              <View style={styles.section}>
-                <Text style={styles.label}>Climbing area</Text>
-                <Text style={styles.contextNameText}>{contextName}</Text>
-              </View>
-            ) : null}
-
-            {/* Climbing Type */}
-            <View style={styles.section}>
-              <Text style={styles.label}>Climbing Type</Text>
-              <View style={styles.climbingTypeButtons}>
-                {(['lead', 'top_rope', 'bouldering', 'any'] as const).map((type) => (
+                {POST_TYPE_CONFIG.map(({ type, label, icon }) => (
                   <TouchableOpacity
                     key={type}
-                    style={[styles.climbingTypeButton, climbingType === type && styles.climbingTypeButtonActive]}
-                    onPress={() => setClimbingType(type)}
+                    style={[styles.typeButton, postType === type && styles.typeButtonActive]}
+                    onPress={() => handlePostTypeChange(type)}
                   >
-                    <Text style={[styles.climbingTypeButtonText, climbingType === type && styles.climbingTypeButtonTextActive]}>
-                      {type === 'top_rope' ? 'Top Rope' : type.charAt(0).toUpperCase() + type.slice(1)}
+                    <Ionicons
+                      name={icon}
+                      size={18}
+                      color={postType === type ? colors.background : colors.textMuted}
+                    />
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        postType === type && styles.typeButtonTextActive,
+                      ]}
+                    >
+                      {label}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
 
-            {/* Timing */}
-            <View style={styles.section}>
-              <Text style={styles.label}>When?</Text>
-              <View style={styles.timingButtons}>
-                <TouchableOpacity
-                  style={[styles.timingButton, urgency === 'now' && styles.timingButtonActive]}
-                  onPress={() => {
-                    setUrgency('now');
-                    setScheduledDateTime(new Date());
-                  }}
-                >
-                  <Text style={[styles.timingButtonText, urgency === 'now' && styles.timingButtonTextActive]}>
-                    Now
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.timingButton, urgency === 'scheduled' && styles.timingButtonActive]}
-                  onPress={() => {
-                    setUrgency('scheduled');
-                    setShowDatePicker(true);
-                  }}
-                >
-                  <Text style={[styles.timingButtonText, urgency === 'scheduled' && styles.timingButtonTextActive]}>
-                    Scheduled
-                  </Text>
-                </TouchableOpacity>
+            {/* ── Context label ─────────────────────────────────────── */}
+            {contextName ? (
+              <View style={styles.section}>
+                <Text style={styles.label}>Location</Text>
+                <Text style={styles.contextNameText}>{contextName}</Text>
               </View>
+            ) : null}
 
-              {urgency === 'scheduled' && (
-                <View style={styles.scheduledInputs}>
+            {/* ── Title (lost_found / general only) ─────────────────── */}
+            {!isPartnerRequest(postType) && (
+              <View style={styles.section}>
+                <Input
+                  label="Title *"
+                  placeholder={
+                    postType === 'lost_found'
+                      ? 'e.g. Lost blue chalk bag near wall 3'
+                      : 'Post title…'
+                  }
+                  value={userTitle}
+                  onChangeText={setUserTitle}
+                  style={styles.input}
+                />
+              </View>
+            )}
+
+            {/* ── Climbing Type (partner requests only) ─────────────── */}
+            {postType === 'belayer_request' && (
+              <View style={styles.section}>
+                <Text style={styles.label}>Climbing Type</Text>
+                <View style={styles.climbingTypeButtons}>
+                  {BELAYER_CLIMBING_TYPES.map(({ value, label }) => (
+                    <TouchableOpacity
+                      key={value}
+                      style={[
+                        styles.climbingTypeButton,
+                        climbingType === value && styles.climbingTypeButtonActive,
+                      ]}
+                      onPress={() => setClimbingType(value)}
+                    >
+                      <Text
+                        style={[
+                          styles.climbingTypeButtonText,
+                          climbingType === value && styles.climbingTypeButtonTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {postType === 'rally_pads_request' && (
+              <View style={styles.section}>
+                <Text style={styles.label}>Climbing Type</Text>
+                <View style={styles.climbingTypeButtons}>
+                  <View style={[styles.climbingTypeButton, styles.climbingTypeButtonActive]}>
+                    <Text style={[styles.climbingTypeButtonText, styles.climbingTypeButtonTextActive]}>
+                      Bouldering
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* ── Timing (partner requests only) ────────────────────── */}
+            {isPartnerRequest(postType) && (
+              <View style={styles.section}>
+                <Text style={styles.label}>When?</Text>
+                <View style={styles.timingButtons}>
                   <TouchableOpacity
-                    style={styles.dateTimeButton}
-                    onPress={() => setShowDatePicker(true)}
+                    style={[styles.timingButton, urgency === 'now' && styles.timingButtonActive]}
+                    onPress={() => {
+                      setUrgency('now');
+                      setScheduledDateTime(new Date());
+                    }}
                   >
-                    <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-                    <Text style={styles.dateTimeButtonText}>
-                      {scheduledDateTime.toLocaleDateString('en-US', {
-                        weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
+                    <Text
+                      style={[
+                        styles.timingButtonText,
+                        urgency === 'now' && styles.timingButtonTextActive,
+                      ]}
+                    >
+                      Now
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.dateTimeButton}
-                    onPress={() => setShowTimePicker(true)}
+                    style={[
+                      styles.timingButton,
+                      urgency === 'scheduled' && styles.timingButtonActive,
+                    ]}
+                    onPress={() => {
+                      setUrgency('scheduled');
+                      setShowDatePicker(true);
+                    }}
                   >
-                    <Ionicons name="time-outline" size={20} color={colors.primary} />
-                    <Text style={styles.dateTimeButtonText}>
-                      {scheduledDateTime.toLocaleTimeString('en-US', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true,
-                      })}
+                    <Text
+                      style={[
+                        styles.timingButtonText,
+                        urgency === 'scheduled' && styles.timingButtonTextActive,
+                      ]}
+                    >
+                      Scheduled
                     </Text>
                   </TouchableOpacity>
                 </View>
-              )}
-            </View>
 
+                {urgency === 'scheduled' && (
+                  <View style={styles.scheduledInputs}>
+                    <TouchableOpacity
+                      style={styles.dateTimeButton}
+                      onPress={() => setShowDatePicker(true)}
+                    >
+                      <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                      <Text style={styles.dateTimeButtonText}>
+                        {scheduledDateTime.toLocaleDateString('en-US', {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.dateTimeButton}
+                      onPress={() => setShowTimePicker(true)}
+                    >
+                      <Ionicons name="time-outline" size={20} color={colors.primary} />
+                      <Text style={styles.dateTimeButtonText}>
+                        {scheduledDateTime.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                        })}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* ── Description ───────────────────────────────────────── */}
             <View style={styles.section}>
               <Input
                 label="Description *"
-                placeholder="Tell potential partners about your plans..."
+                placeholder={
+                  postType === 'lost_found'
+                    ? 'Where/when was it lost? Any distinguishing features?'
+                    : postType === 'general'
+                    ? 'What would you like to share?'
+                    : 'Tell potential partners about your plans…'
+                }
                 value={content}
                 onChangeText={setContent}
                 multiline
@@ -318,64 +440,81 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
               />
             </View>
 
-            {/* Audience Selection */}
-            <View style={styles.section}>
-              <Text style={styles.label}>Post To</Text>
-              
-              {/* Groups */}
-              {userGroups.length > 0 && (
-                <View style={styles.audienceSection}>
-                  <Text style={styles.audienceLabel}>Groups</Text>
-                  <ScrollView style={styles.groupList} nestedScrollEnabled>
-                    {userGroups.map((group) => {
-                      const groupId = group.groupId || group.id; // Support both formats
-                      return (
-                        <TouchableOpacity
-                          key={groupId}
-                          style={styles.groupOption}
-                          onPress={() => handleToggleGroup(groupId)}
-                        >
-                          <Ionicons
-                            name={selectedGroups.includes(groupId) ? 'checkbox' : 'square-outline'}
-                            size={24}
-                            color={selectedGroups.includes(groupId) ? colors.primary : colors.textMuted}
-                          />
-                          <View style={styles.groupInfo}>
-                            <Text style={styles.groupName}>{group.name}</Text>
-                            <Text style={styles.groupMembers}>{group.memberCount} members</Text>
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              )}
+            {/* ── Audience (partner requests only) ──────────────────── */}
+            {isPartnerRequest(postType) && (
+              <View style={styles.section}>
+                <Text style={styles.label}>Post To</Text>
 
-              {/* Area Feed */}
-              <TouchableOpacity
-                style={styles.checkboxRow}
-                onPress={() => setPostToArea(!postToArea)}
-              >
-                <Ionicons
-                  name={postToArea ? 'checkbox' : 'square-outline'}
-                  size={24}
-                  color={postToArea ? colors.primary : colors.textMuted}
-                />
-                <View style={styles.checkboxInfo}>
-                  <Text style={styles.checkboxLabel}>
-                    {initialAreaId ? 'Area' : 'Gym'} bulletin board
-                  </Text>
-                  <Text style={styles.checkboxSubtext}>
-                    Post to the public feed for this {initialAreaId ? 'climbing area' : 'gym'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
+                {userGroups.length > 0 && (
+                  <View style={styles.audienceSection}>
+                    <Text style={styles.audienceLabel}>Groups</Text>
+                    <ScrollView style={styles.groupList} nestedScrollEnabled>
+                      {userGroups.map((group) => {
+                        const groupId = group.groupId || group.id;
+                        return (
+                          <TouchableOpacity
+                            key={groupId}
+                            style={styles.groupOption}
+                            onPress={() => handleToggleGroup(groupId)}
+                          >
+                            <Ionicons
+                              name={
+                                selectedGroups.includes(groupId)
+                                  ? 'checkbox'
+                                  : 'square-outline'
+                              }
+                              size={24}
+                              color={
+                                selectedGroups.includes(groupId)
+                                  ? colors.primary
+                                  : colors.textMuted
+                              }
+                            />
+                            <View style={styles.groupInfo}>
+                              <Text style={styles.groupName}>{group.name}</Text>
+                              <Text style={styles.groupMembers}>
+                                {group.memberCount} members
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.checkboxRow}
+                  onPress={() => setPostToArea(!postToArea)}
+                >
+                  <Ionicons
+                    name={postToArea ? 'checkbox' : 'square-outline'}
+                    size={24}
+                    color={postToArea ? colors.primary : colors.textMuted}
+                  />
+                  <View style={styles.checkboxInfo}>
+                    <Text style={styles.checkboxLabel}>
+                      {initialAreaId ? 'Area' : 'Gym'} bulletin board
+                    </Text>
+                    <Text style={styles.checkboxSubtext}>
+                      Post to the public feed for this{' '}
+                      {initialAreaId ? 'climbing area' : 'gym'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>
             <Button
-              title="Post Request"
+              title={
+                postType === 'lost_found'
+                  ? 'Post to Lost & Found'
+                  : postType === 'general'
+                  ? 'Post'
+                  : 'Post Request'
+              }
               onPress={handleSave}
               loading={saving}
             />
@@ -383,7 +522,7 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
         </Card>
       </View>
 
-      {/* Calendar Modal */}
+      {/* ── Calendar Modal ─────────────────────────────────────────── */}
       <Modal
         visible={showDatePicker}
         transparent
@@ -412,7 +551,6 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
                 );
                 setScheduledDateTime(newDate);
                 setShowDatePicker(false);
-                // Auto-open time picker after selecting date
                 setTimeout(() => setShowTimePicker(true), 300);
               }}
               markedDates={{
@@ -427,7 +565,7 @@ const BelayerRequestModal: React.FC<BelayerRequestModalProps> = ({
         </View>
       </Modal>
 
-      {/* Native time picker — Android uses system dialog; iOS uses sheet + spinner */}
+      {/* ── Time Picker ────────────────────────────────────────────── */}
       {showTimePicker && Platform.OS === 'android' && (
         <DateTimePicker
           value={scheduledDateTime}
@@ -533,16 +671,15 @@ const styles = StyleSheet.create({
   },
   typeButtons: {
     flexDirection: 'row',
-    gap: 12,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   typeButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
@@ -553,7 +690,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   typeButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textMuted,
     fontWeight: '500',
   },
@@ -682,7 +819,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   input: {
-    marginBottom: 12,
+    marginBottom: 0,
     color: colors.text,
   },
   textArea: {

@@ -24,6 +24,14 @@
         "NSContactsUsageDescription": "Gym Friends uses your contacts so you can invite friends by phone.",
         "UIBackgroundModes": [
           "location"
+        ],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "gymfriends",
+              "com.googleusercontent.apps.330440941170-pargj79jl1ims4lv96t42tlqpnrqpsa0"
+            ]
+          }
         ]
       },
       "usesAppleSignIn": true

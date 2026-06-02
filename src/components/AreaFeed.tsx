@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,14 @@ import {
   RefreshControl,
   Image,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { areaFeedApi } from '../services/api';
-import { AreaFeedPost, BelayerRequestResponse } from '../types';
+import { areaFeedApi, postCommentsApi } from '../services/api';
+import { AreaFeedPost, BelayerRequestResponse, PostComment } from '../types';
 import Card from './Card';
 import Button from './Button';
 import BelayerResponsePool from './BelayerResponsePool';
@@ -29,6 +31,8 @@ interface AreaFeedProps {
   onPostPress?: (post: AreaFeedPost) => void;
   /** Optional header rendered above the feed (use when embedding in a screen that would otherwise wrap this in ScrollView). */
   listHeaderComponent?: React.ReactNode;
+  /** When set, this post is prepended immediately (optimistic insert after creation). */
+  pendingNewPost?: AreaFeedPost | null;
 }
 
 const AreaFeed: React.FC<AreaFeedProps> = ({
@@ -38,6 +42,7 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
   postType,
   onPostPress,
   listHeaderComponent,
+  pendingNewPost,
 }) => {
   const { user } = useAuth();
   const [posts, setPosts] = useState<AreaFeedPost[]>([]);
@@ -48,6 +53,12 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportingPost, setReportingPost] = useState<AreaFeedPost | null>(null);
   const [reportReason, setReportReason] = useState('');
+
+  // Comments: expandedPostId is the post currently showing its thread
+  const [expandedCommentPostId, setExpandedCommentPostId] = useState<string | null>(null);
+  const [commentsByPostId, setCommentsByPostId] = useState<Record<string, PostComment[]>>({});
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
+  const [commentSubmitting, setCommentSubmitting] = useState<Record<string, boolean>>({});
 
   // Helper function to check if belayer request post is expired (1 hour after start time)
   const isBelayerRequestExpired = (post: AreaFeedPost): boolean => {
@@ -79,6 +90,16 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
   useEffect(() => {
     loadPosts();
   }, [gymId, areaId, cragName, postType]);
+
+  // Optimistically prepend a newly created post so it appears without a refresh
+  useEffect(() => {
+    if (!pendingNewPost) return;
+    setPosts((prev) => {
+      // Avoid duplicates if the feed happened to refresh in the meantime
+      if (prev.some((p) => p.postId === pendingNewPost.postId)) return prev;
+      return [pendingNewPost, ...prev];
+    });
+  }, [pendingNewPost]);
 
   // Periodically filter out expired belayer request posts (every 5 minutes)
   useEffect(() => {
@@ -161,6 +182,52 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
     }
   };
 
+  const toggleComments = useCallback(async (postId: string) => {
+    if (expandedCommentPostId === postId) {
+      setExpandedCommentPostId(null);
+      return;
+    }
+    setExpandedCommentPostId(postId);
+    if (!commentsByPostId[postId]) {
+      try {
+        const comments = await postCommentsApi.getComments(postId);
+        setCommentsByPostId((prev) => ({ ...prev, [postId]: comments }));
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.postId === postId
+              ? { ...p, commentCount: Math.max(p.commentCount ?? 0, comments.length) }
+              : p
+          )
+        );
+      } catch {
+        setCommentsByPostId((prev) => ({ ...prev, [postId]: [] }));
+      }
+    }
+  }, [expandedCommentPostId, commentsByPostId]);
+
+  const handleAddComment = useCallback(async (postId: string) => {
+    const text = (commentInputs[postId] ?? '').trim();
+    if (!text || !user?.id) return;
+    setCommentSubmitting((prev) => ({ ...prev, [postId]: true }));
+    try {
+      const newComment = await postCommentsApi.addComment(postId, user.id, text);
+      setCommentsByPostId((prev) => ({
+        ...prev,
+        [postId]: [...(prev[postId] ?? []), newComment],
+      }));
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.postId === postId ? { ...p, commentCount: (p.commentCount ?? 0) + 1 } : p
+        )
+      );
+      setCommentInputs((prev) => ({ ...prev, [postId]: '' }));
+    } catch {
+      Alert.alert('Error', 'Failed to post comment. Please try again.');
+    } finally {
+      setCommentSubmitting((prev) => ({ ...prev, [postId]: false }));
+    }
+  }, [commentInputs, user?.id]);
+
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -179,8 +246,16 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
   const renderPost = ({ item: post }: { item: AreaFeedPost }) => {
     const isAuthor = post.authorUserId === user?.id;
     const isBelayerRequest = post.postType === 'belayer_request' || post.postType === 'rally_pads_request';
-    const hasResponded = isBelayerRequest && user?.id && 
+    const isCommentable = post.postType === 'lost_found' || post.postType === 'general';
+    const hasResponded = isBelayerRequest && user?.id &&
       post.availableResponders?.some(r => r.responderUserId === user.id);
+    const commentsExpanded = expandedCommentPostId === post.postId;
+    const comments = commentsByPostId[post.postId] ?? [];
+    const commentsLoaded = Object.prototype.hasOwnProperty.call(commentsByPostId, post.postId);
+    const countFromFeed = post.commentCount ?? 0;
+    const commentDisplayCount = commentsLoaded
+      ? Math.max(comments.length, countFromFeed)
+      : countFromFeed;
 
     return (
       <Card style={styles.postCard}>
@@ -277,7 +352,82 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
               )}
             </>
           )}
+          {isCommentable && (
+            <TouchableOpacity
+              style={styles.commentToggleButton}
+              onPress={() => toggleComments(post.postId)}
+            >
+              <Ionicons
+                name={commentsExpanded ? 'chatbubble' : 'chatbubble-outline'}
+                size={16}
+                color={commentsExpanded ? colors.primary : colors.textMuted}
+              />
+              <Text style={[styles.commentToggleText, commentsExpanded && styles.commentToggleTextActive]}>
+                {commentDisplayCount > 0
+                  ? `${commentDisplayCount} comment${commentDisplayCount === 1 ? '' : 's'}`
+                  : 'Comment'}
+              </Text>
+              <Ionicons
+                name={commentsExpanded ? 'chevron-up' : 'chevron-down'}
+                size={13}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+          )}
         </View>
+
+        {isCommentable && commentsExpanded && (
+          <View style={styles.commentSection}>
+            {comments.length === 0 ? (
+              <Text style={styles.noCommentsText}>No comments yet — be the first!</Text>
+            ) : (
+              comments.map((comment) => (
+                <View key={comment.id} style={styles.commentRow}>
+                  {comment.authorAvatar ? (
+                    <Image source={{ uri: comment.authorAvatar }} style={styles.commentAvatar} />
+                  ) : (
+                    <View style={styles.commentAvatarPlaceholder}>
+                      <Ionicons name="person" size={11} color={colors.textMuted} />
+                    </View>
+                  )}
+                  <View style={styles.commentBubble}>
+                    <View style={styles.commentMeta}>
+                      <Text style={styles.commentAuthor}>{comment.authorName || 'User'}</Text>
+                      <Text style={styles.commentTime}>{formatTime(comment.createdAt)}</Text>
+                    </View>
+                    <Text style={styles.commentContent}>{comment.content}</Text>
+                  </View>
+                </View>
+              ))
+            )}
+            <View style={styles.commentInputRow}>
+              <TextInput
+                style={styles.commentInput}
+                placeholder="Add a comment…"
+                placeholderTextColor={colors.textMuted}
+                value={commentInputs[post.postId] ?? ''}
+                onChangeText={(text) =>
+                  setCommentInputs((prev) => ({ ...prev, [post.postId]: text }))
+                }
+                multiline
+                maxLength={1000}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.commentSendButton,
+                  (commentSubmitting[post.postId] || !(commentInputs[post.postId] ?? '').trim()) &&
+                    styles.commentSendButtonDisabled,
+                ]}
+                onPress={() => handleAddComment(post.postId)}
+                disabled={
+                  commentSubmitting[post.postId] || !(commentInputs[post.postId] ?? '').trim()
+                }
+              >
+                <Ionicons name="send" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </Card>
     );
   };
@@ -483,7 +633,7 @@ const styles = StyleSheet.create({
   },
   postFooter: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 12,
     borderTopWidth: 1,
@@ -579,6 +729,113 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     flex: 1,
+  },
+
+  // ── Comments ────────────────────────────────────────────────────────────────
+  commentToggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  commentToggleText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+  commentToggleTextActive: {
+    color: colors.primary,
+  },
+  commentSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: 10,
+  },
+  noCommentsText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: 8,
+    fontStyle: 'italic',
+  },
+  commentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  commentAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginTop: 2,
+  },
+  commentAvatarPlaceholder: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceElevated,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  commentBubble: {
+    flex: 1,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  commentMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 3,
+  },
+  commentAuthor: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  commentTime: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  commentContent: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 2,
+  },
+  commentInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: colors.text,
+    maxHeight: 80,
+    backgroundColor: colors.surface,
+  },
+  commentSendButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primaryMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentSendButtonDisabled: {
+    opacity: 0.35,
   },
 });
 

@@ -382,6 +382,73 @@ export interface Database {
           created_at?: string;
         };
       };
+      calendar_busy_blocks: {
+        Row: {
+          id: string;
+          user_id: string;
+          start_time: string;
+          end_time: string;
+          source: 'google' | 'manual';
+          event_title: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          start_time: string;
+          end_time: string;
+          source?: 'google' | 'manual';
+          event_title?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          start_time?: string;
+          end_time?: string;
+          source?: 'google' | 'manual';
+          event_title?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      google_calendar_tokens: {
+        Row: {
+          id: string;
+          user_id: string;
+          access_token: string;
+          refresh_token: string | null;
+          token_expiry: string | null;
+          calendar_id: string;
+          calendar_label: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          access_token: string;
+          refresh_token?: string | null;
+          token_expiry?: string | null;
+          calendar_id?: string;
+          calendar_label?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          access_token?: string;
+          refresh_token?: string | null;
+          token_expiry?: string | null;
+          calendar_id?: string;
+          calendar_label?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
   };
 }

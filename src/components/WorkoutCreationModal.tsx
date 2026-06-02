@@ -30,6 +30,8 @@ interface WorkoutCreationModalProps {
   selectedHour: number;
   selectedMinute: number;
   editingWorkout?: WorkoutSession | null;
+  /** Friend IDs to pre-select in the invite list (e.g. when opened from Find Time) */
+  preselectedFriendIds?: string[];
 }
 
 const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
@@ -41,6 +43,7 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
   selectedHour,
   selectedMinute,
   editingWorkout,
+  preselectedFriendIds,
 }) => {
   const { followedGyms, friends, schedules } = useApp();
   const { user } = useAuth();
@@ -103,11 +106,11 @@ const WorkoutCreationModal: React.FC<WorkoutCreationModalProps> = ({
         setRecurringPattern({ type: 'weekly', interval: 1 });
         // Set default gym to first followed gym
         setSelectedGymId(followedGyms.length > 0 ? followedGyms[0].id : '');
-        setSelectedFriends([]);
+        setSelectedFriends(preselectedFriendIds ?? []);
         setSelectedGroups([]);
       }
     }
-  }, [visible, selectedDate, selectedHour, selectedMinute, editingWorkout, followedGyms, schedules]);
+  }, [visible, selectedDate, selectedHour, selectedMinute, editingWorkout, followedGyms, schedules, preselectedFriendIds]);
 
   useEffect(() => {
     if (!visible) {

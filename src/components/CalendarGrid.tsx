@@ -5,6 +5,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   Dimensions,
   Modal,
@@ -20,15 +21,27 @@ import {
   type SpanSegment,
 } from '../utils/calendarSpanUtils';
 
+/** A Google Calendar / manual busy window to shade in the week view. */
+export interface CalendarBusyBlock {
+  id: string;
+  startTime: Date;
+  endTime: Date;
+}
+
 interface CalendarGridProps {
   currentDate: Date;
   workouts: WorkoutSession[];
+  /** Optional GCal busy blocks — rendered as a vivid red tint in week view. */
+  busyBlocks?: CalendarBusyBlock[];
   onTimeSlotPress: (date: Date, hour: number, minute: number) => void;
   onWorkoutPress: (workout: WorkoutSession) => void;
   onDayPress?: (date: Date) => void;
   viewType: 'week' | 'month';
   /** Friend calendar: max span rows per week; extra trips go to "+N more". */
   monthSpanMaxVisibleLanes?: number;
+  /** Pull-to-refresh: fires when user drags down on the week scroll view. */
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -48,11 +61,14 @@ const MONTH_FIRST_TRIP_TOP = MONTH_DATE_BOTTOM + MONTH_TRIP_GAP;
 const CalendarGrid: React.FC<CalendarGridProps> = ({
   currentDate,
   workouts,
+  busyBlocks = [],
   onTimeSlotPress,
   onWorkoutPress,
   onDayPress,
   viewType,
   monthSpanMaxVisibleLanes,
+  onRefresh,
+  isRefreshing = false,
 }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [monthOverflowModal, setMonthOverflowModal] = useState<WorkoutSession[] | null>(
@@ -417,6 +433,41 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
           );
         })}
 
+        {/* Google Calendar Busy Overlays — rendered behind workout blocks */}
+        {busyBlocks
+          .filter((b) => {
+            const dayStr = day.date.toDateString();
+            return (
+              b.startTime.toDateString() === dayStr ||
+              b.endTime.toDateString() === dayStr ||
+              (b.startTime < day.date && b.endTime > day.date)
+            );
+          })
+          .map((block) => {
+            const position = getWorkoutPosition({
+              startTime: block.startTime,
+              endTime: block.endTime,
+            } as any);
+            const blockHeight = Math.max(position.height, 6);
+            return (
+              <View
+                key={`gcal-busy-${block.id}`}
+                pointerEvents="none"
+                style={[
+                  styles.busyBlockOverlay,
+                  day.isPast && styles.busyBlockOverlayPast,
+                  { top: position.top, height: blockHeight },
+                ]}
+              >
+                {blockHeight >= 20 && (
+                  <Text style={styles.busyBlockLabel} numberOfLines={1}>
+                    Busy
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+
         {/* Workout Blocks */}
         {day.workouts.map((workout) => {
           const position = getWorkoutPosition(workout);
@@ -522,11 +573,21 @@ const CalendarGrid: React.FC<CalendarGridProps> = ({
 
       {/* Calendar Grid */}
       {viewType === 'week' ? (
-        <ScrollView 
+        <ScrollView
           ref={scrollViewRef}
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
+              />
+            ) : undefined
+          }
         >
           <View style={styles.gridContainer}>
             {renderTimeColumn()}
@@ -1059,6 +1120,27 @@ const styles = StyleSheet.create({
     flex: 1,
     borderBottomWidth: 0.5,
     borderBottomColor: colors.border,
+  },
+  busyBlockOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(245, 80, 63, 0.35)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#f5503f',
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  busyBlockOverlayPast: {
+    backgroundColor: 'rgba(245, 80, 63, 0.15)',
+    borderLeftColor: 'rgba(245, 80, 63, 0.4)',
+  },
+  busyBlockLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#f5503f',
+    paddingLeft: 5,
+    letterSpacing: 0.3,
   },
   workoutBlock: {
     position: 'absolute',

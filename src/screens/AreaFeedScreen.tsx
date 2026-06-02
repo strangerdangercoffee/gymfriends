@@ -11,7 +11,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
-import { Gym, ClimbingArea } from '../types';
+import { Gym, ClimbingArea, AreaFeedPost } from '../types';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import BelayerRequestModal from '../components/BelayerRequestModal';
@@ -29,6 +29,7 @@ const AreaFeedScreen: React.FC = () => {
   const [selectedGym, setSelectedGym] = useState<Gym | null>(null);
   const [showBelayerRequestModal, setShowBelayerRequestModal] = useState(false);
   const [showAllAreas, setShowAllAreas] = useState(false);
+  const [pendingNewPost, setPendingNewPost] = useState<AreaFeedPost | null>(null);
 
   useEffect(() => {
     if (followedGyms.length > 0 && !selectedGym) {
@@ -140,7 +141,7 @@ const AreaFeedScreen: React.FC = () => {
         {/* Post Request Button */}
         <View style={styles.actionBar}>
           <Button
-            title="Looking for a Partner"
+            title="New Post"
             onPress={() => setShowBelayerRequestModal(true)}
             disabled={!selectedGym}
             style={styles.postButton}
@@ -151,7 +152,7 @@ const AreaFeedScreen: React.FC = () => {
         {selectedGym ? (
           <AreaFeed
             gymId={selectedGym.id}
-            postType="belayer_request"
+            pendingNewPost={pendingNewPost}
           />
         ) : (
           <View style={styles.emptyState}>
@@ -167,7 +168,10 @@ const AreaFeedScreen: React.FC = () => {
       <BelayerRequestModal
         visible={showBelayerRequestModal}
         onClose={() => setShowBelayerRequestModal(false)}
-        onSuccess={() => setShowBelayerRequestModal(false)}
+        onSuccess={(post) => {
+          setPendingNewPost(post);
+          setShowBelayerRequestModal(false);
+        }}
         initialGymId={selectedGym?.id}
         contextName={selectedGym?.name}
       />

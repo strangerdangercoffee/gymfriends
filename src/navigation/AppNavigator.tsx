@@ -28,6 +28,7 @@ import AreaDetailScreen from '../screens/AreaDetailScreen';
 import AreaFriendCalendarScreen from '../screens/AreaFriendCalendarScreen';
 import AreasMapScreen from '../screens/AreasMapScreen';
 import GymDetailScreen from '../screens/GymDetailScreen';
+import FindTimeScreen from '../screens/FindTimeScreen';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
@@ -136,10 +137,20 @@ const GroupsStackNavigator: React.FC = () => {
           title: route.params.areaName ? `${route.params.areaName} · Trips` : 'Trip calendar',
         })}
       />
-      <GroupsStack.Screen 
-        name="GymDetail" 
+      <GroupsStack.Screen
+        name="GymDetail"
         component={GymDetailScreen}
         options={({ route }) => ({ title: route.params?.gymId ? 'Gym' : 'Gym' })}
+      />
+      <GroupsStack.Screen
+        name="FriendSchedule"
+        component={FindTimeScreen}
+        options={({ route }) => ({ title: (route.params as any)?.userName ?? 'Schedule' })}
+      />
+      <GroupsStack.Screen
+        name="GroupSchedule"
+        component={FindTimeScreen}
+        options={({ route }) => ({ title: (route.params as any)?.groupName ?? 'Group Schedule' })}
       />
     </GroupsStack.Navigator>
   );
