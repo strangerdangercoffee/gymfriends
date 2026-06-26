@@ -4,7 +4,7 @@ import { useRoute, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { userAreaPlansApi, userApi } from '../services/api';
-import { GroupsStackParamList, UserAreaPlan, WorkoutSession } from '../types';
+import { FindStackParamList, UserAreaPlan, WorkoutSession } from '../types';
 import CalendarHeader from '../components/CalendarHeader';
 import CalendarGrid from '../components/CalendarGrid';
 import PlanTripModal from '../components/PlanTripModal';
@@ -15,7 +15,7 @@ import {
 } from '../utils/tripClusterUtils';
 import { colors } from '../theme/colors';
 
-type Route = RouteProp<GroupsStackParamList, 'AreaFriendCalendar'>;
+type Route = RouteProp<FindStackParamList, 'AreaFriendCalendar'>;
 
 function clusterToSpanningSession(
   group: UserAreaPlan[],

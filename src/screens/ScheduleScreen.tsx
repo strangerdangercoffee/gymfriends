@@ -2,13 +2,16 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
+  Text,
   StyleSheet,
   Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useNetwork } from '../context/NetworkContext';
 import { groupsApi, chatApi, userAreaPlansApi, calendarBusyBlocksApi, CalendarBusyBlock } from '../services/api';
 import { hasCalendarAccess, syncUpcomingEvents } from '../services/googleCalendar';
 import { Schedule, ScheduleStackParamList, WorkoutSession, WorkoutHistory, CalendarView, CreateScheduleForm, WorkoutInvitationWithResponses, CreateWorkoutInvitationData, UserAreaPlan } from '../types';
@@ -25,13 +28,13 @@ type ScheduleScreenNavigationProp = StackNavigationProp<ScheduleStackParamList, 
 
 const ScheduleScreen: React.FC = () => {
   const navigation = useNavigation<ScheduleScreenNavigationProp>();
-  const { 
-    schedules, 
-    workoutHistory, 
+  const {
+    schedules,
+    workoutHistory,
     workoutInvitations,
     pendingInvitationsCount,
-    isLoading, 
-    deleteSchedule, 
+    isLoading,
+    deleteSchedule,
     deleteRecurringSchedule,
     addSchedule,
     updateSchedule,
@@ -47,6 +50,7 @@ const ScheduleScreen: React.FC = () => {
     getWorkoutInvitationById
   } = useApp();
   const { user } = useAuth();
+  const { isOffline } = useNetwork();
   const [userTrips, setUserTrips] = useState<UserAreaPlan[]>([]);
 
   const loadUserTrips = useCallback(() => {
@@ -95,6 +99,10 @@ const ScheduleScreen: React.FC = () => {
   // Pull-to-refresh: sync calendar then reload busy blocks
   const handleCalendarRefresh = useCallback(async () => {
     if (!user?.id) return;
+    if (isOffline) {
+      // Can't sync calendar while offline — cached view is already shown
+      return;
+    }
     setIsRefreshingGcal(true);
     try {
       const hasAccess = await hasCalendarAccess(user.id);
@@ -107,7 +115,7 @@ const ScheduleScreen: React.FC = () => {
     } finally {
       setIsRefreshingGcal(false);
     }
-  }, [user?.id, currentDate, fetchGcalBusyBlocks]);
+  }, [isOffline, user?.id, currentDate, fetchGcalBusyBlocks]);
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showInvitationModal, setShowInvitationModal] = useState(false);
@@ -469,7 +477,11 @@ const ScheduleScreen: React.FC = () => {
       // Close modal and refresh data
       setShowWorkoutModal(false);
       setEditingWorkout(null);
-      
+
+      if (isOffline) {
+        Alert.alert('Saved offline', 'Your workout has been queued and will sync when you reconnect.');
+      }
+
       // Refresh schedules to show updated data
       await refreshSchedules();
       
@@ -575,6 +587,14 @@ const ScheduleScreen: React.FC = () => {
         onAddWorkout={handleAddWorkout}
       />
 
+      {/* Offline notice */}
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={12} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Showing saved data — you're offline</Text>
+        </View>
+      )}
+
       {/* Calendar Grid */}
       <CalendarGrid
         currentDate={currentDate}
@@ -640,6 +660,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
+  offlineNoticeText: {
+    color: colors.textMuted,
+    fontSize: 11,
   },
 });
 

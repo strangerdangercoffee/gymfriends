@@ -286,10 +286,20 @@ const AreaFeed: React.FC<AreaFeedProps> = ({
 
         {!isBelayerRequest && (
           <View style={styles.postTypeBadge}>
+            <Ionicons
+              name={
+                post.postType === 'trip_announcement' ? 'calendar-outline' :
+                post.postType === 'lost_found' ? 'search-outline' :
+                post.postType === 'discussion' ? 'chatbubble-outline' : 'pin-outline'
+              }
+              size={12}
+              color={colors.primary}
+              style={{ marginRight: 4 }}
+            />
             <Text style={styles.postTypeText}>
-              {post.postType === 'trip_announcement' ? '✈️ Trip plan' :
-               post.postType === 'lost_found' ? '🔍 Lost & Found' :
-               post.postType === 'discussion' ? '💬 Discussion' : '📌 General'}
+              {post.postType === 'trip_announcement' ? 'Trip plan' :
+               post.postType === 'lost_found' ? 'Lost & Found' :
+               post.postType === 'discussion' ? 'Discussion' : 'General'}
             </Text>
           </View>
         )}
@@ -588,6 +598,8 @@ const styles = StyleSheet.create({
   },
   postTypeBadge: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
     backgroundColor: colors.primaryMuted,

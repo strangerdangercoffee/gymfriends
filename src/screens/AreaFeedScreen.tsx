@@ -11,21 +11,23 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
+import { useNetwork } from '../context/NetworkContext';
 import { Gym, ClimbingArea, AreaFeedPost } from '../types';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import BelayerRequestModal from '../components/BelayerRequestModal';
 import AreaFeed from '../components/AreaFeed';
-import { GroupsStackParamList } from '../types';
+import { FindStackParamList } from '../types';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { colors } from '../theme/colors';
 
-type AreaFeedNav = StackNavigationProp<GroupsStackParamList, 'AreaFeed'>;
+type AreaFeedNav = StackNavigationProp<FindStackParamList, 'FindMain'>;
 
 const AreaFeedScreen: React.FC = () => {
   const navigation = useNavigation<AreaFeedNav>();
   const { user } = useAuth();
   const { followedGyms, climbingAreas, followedAreas } = useApp();
+  const { isOffline } = useNetwork();
   const [selectedGym, setSelectedGym] = useState<Gym | null>(null);
   const [showBelayerRequestModal, setShowBelayerRequestModal] = useState(false);
   const [showAllAreas, setShowAllAreas] = useState(false);
@@ -57,6 +59,13 @@ const AreaFeedScreen: React.FC = () => {
         <Text style={styles.headerTitle}>Area Feeds</Text>
         <View style={styles.placeholder} />
       </View>
+
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Showing saved data — you're offline.</Text>
+        </View>
+      )}
 
       <ScrollView style={styles.content}>
         {/* Gym Selector */}
@@ -141,7 +150,7 @@ const AreaFeedScreen: React.FC = () => {
         {/* Post Request Button */}
         <View style={styles.actionBar}>
           <Button
-            title="New Post"
+            title={isOffline ? 'New Post (will sync when back online)' : 'New Post'}
             onPress={() => setShowBelayerRequestModal(true)}
             disabled={!selectedGym}
             style={styles.postButton}
@@ -183,6 +192,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F2F2F7',
+  },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offlineNoticeText: {
+    fontSize: 12,
+    color: colors.textMuted,
   },
   header: {
     flexDirection: 'row',

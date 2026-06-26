@@ -2,25 +2,27 @@ import React, { createContext, useContext, useEffect, useState, ReactNode, useMe
 import { AppState, AppStateStatus } from 'react-native';
 import { supabase } from '../services/supabase';
 import { hasCalendarAccess, syncUpcomingEvents } from '../services/googleCalendar';
-import { userApi, gymApi, scheduleApi, presenceApi, workoutHistoryApi, workoutInvitationApi, chatApi, groupsApi, climbingAreasApi, userAreaFollowsApi, offlineQueueRunner } from '../services/api';
+import { userApi, gymApi, scheduleApi, presenceApi, workoutHistoryApi, workoutInvitationApi, chatApi, groupsApi, climbingAreasApi, userAreaFollowsApi, userAreaVisitsApi, offlineQueueRunner } from '../services/api';
 import { offlineQueue } from '../services/offlineQueue';
 import { workoutHistoryGenerator } from '../services/workoutHistoryGenerator';
 import { geofencingService } from '../services/geofencing';
-import { 
-  User, 
-  Gym, 
-  Schedule, 
+import {
+  User,
+  Gym,
+  Schedule,
   Presence,
   WorkoutHistory,
-  CreateScheduleForm, 
+  CreateScheduleForm,
   AppContextType,
   WorkoutInvitationWithResponses,
   CreateWorkoutInvitationData,
-  ClimbingArea
+  ClimbingArea,
+  UserAreaVisit
 } from '../types';
 import { useAuth } from './AuthContext';
 import { useLocation } from './LocationContext';
 import { useOnboarding } from './OnboardingContext';
+import { useNetwork } from './NetworkContext';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -32,6 +34,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const { user, updateProfile, refreshUser } = useAuth();
   const { hasCompletedOnboarding } = useOnboarding();
   const { startGeofencing, stopGeofencing, hasBackgroundPermission } = useLocation();
+  const { isOffline } = useNetwork();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [gyms, setGyms] = useState<Gym[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
@@ -41,6 +44,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [pendingInvitationsCount, setPendingInvitationsCount] = useState(0);
   const [climbingAreas, setClimbingAreas] = useState<ClimbingArea[]>([]);
   const [followedAreas, setFollowedAreas] = useState<ClimbingArea[]>([]);
+  const [activeAreaVisits, setActiveAreaVisits] = useState<UserAreaVisit[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [geofencingActive, setGeofencingActive] = useState(false);
   
@@ -93,6 +97,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     });
     return () => sub.remove();
   }, []);
+
+  // Flush offline write queue when connectivity is restored (offline → online transition)
+  const prevIsOfflineRef = React.useRef(isOffline);
+  useEffect(() => {
+    const wasOffline = prevIsOfflineRef.current;
+    prevIsOfflineRef.current = isOffline;
+    // Only flush on the transition from offline to online
+    if (wasOffline && !isOffline) {
+      offlineQueue.processQueue(offlineQueueRunner).then(({ processed }) => {
+        if (processed > 0) console.log('Offline queue flushed on reconnect:', processed, 'items');
+      });
+    }
+  }, [isOffline]);
 
   // Sync Google Calendar when app comes to foreground (throttled — at most once per 15 min)
   useEffect(() => {
@@ -220,6 +237,16 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       )
       .subscribe();
 
+    // Subscribe to area visit changes
+    const areaVisitsSubscription = supabase
+      .channel('area_visits')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_area_visits' },
+        () => { refreshActiveAreaVisits(); }
+      )
+      .subscribe();
+
     // Subscribe to gym changes
     const gymSubscription = supabase
       .channel('gyms')
@@ -271,6 +298,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     return () => {
       scheduleSubscription.unsubscribe();
       presenceSubscription.unsubscribe();
+      areaVisitsSubscription.unsubscribe();
       gymSubscription.unsubscribe();
       workoutInvitationSubscription.unsubscribe();
       workoutInvitationResponseSubscription.unsubscribe();
@@ -291,17 +319,23 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     setLastRefreshTime(now);
     setIsLoading(true);
     try {
-      const promises: Promise<void>[] = [
+      // Fetch friends first so we have real IDs for the presence query.
+      // Running schedules/gyms/invitations in parallel with friends is fine.
+      const [fetchedFriends] = await Promise.all([
+        refreshFriends(),
         refreshSchedules(),
         refreshGyms(),
-        refreshFriends(),
-        refreshPresence(),
         refreshWorkoutInvitations(),
-      ];
+      ]);
+      // Now fetch presence and area visits using the freshly-loaded friend IDs.
+      const friendIds = fetchedFriends.map((f) => f.id);
+      await Promise.all([
+        refreshPresence(friendIds),
+        refreshActiveAreaVisits(friendIds),
+      ]);
       if (hasCompletedOnboarding) {
-        promises.push(refreshWorkoutHistory());
+        await refreshWorkoutHistory();
       }
-      await Promise.all(promises);
     } catch (error) {
       console.error('Error refreshing data:', error);
     } finally {
@@ -339,33 +373,33 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   };
 
-  const refreshFriends = async (): Promise<void> => {
-    if (!user) return;
+  const refreshFriends = async (): Promise<User[]> => {
+    if (!user) return [];
 
     try {
       const userFriends = await userApi.getUserFriends(user.id);
       setFriends(userFriends);
+      return userFriends;
     } catch (error) {
       console.error('Error refreshing friends:', error);
+      return [];
     }
   };
 
-  const refreshPresence = async (): Promise<void> => {
+  const refreshPresence = async (explicitFriendIds?: string[]): Promise<void> => {
     if (!user) return;
-    
+
     try {
-      // OPTIMIZATION: Only fetch presence for followed gyms and friends, not all users
       const followedGymIds = user.followedGyms || [];
-      const friendIds = user.friends || [];
-      
-      // If no followed gyms or friends, don't fetch presence
+      // Prefer explicitly-passed IDs (from a fresh friends fetch) over the potentially
+      // stale auth user object, which may be empty on first load.
+      const friendIds = explicitFriendIds ?? (user.friends || []);
+
       if (followedGymIds.length === 0 && friendIds.length === 0) {
         setPresence([]);
         return;
       }
-      
-      // OPTIMIZATION: Fetch presence only for relevant gyms and friends
-      // Pass filters directly to API to reduce data transfer
+
       const relevantPresence = await presenceApi.getAllActivePresence(followedGymIds, friendIds);
       setPresence(relevantPresence);
     } catch (error) {
@@ -524,11 +558,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   };
 
-  const checkIn = async (gymId: string): Promise<void> => {
+  const checkIn = async (gymId: string, openToJoin: boolean = true): Promise<void> => {
     if (!user) throw new Error('No user logged in');
 
     try {
-      await presenceApi.checkIn(user.id, gymId);
+      await presenceApi.checkIn(user.id, gymId, undefined, openToJoin);
       await refreshPresence(); // Refresh all presence data
       await refreshGyms(); // Update gym's current users
       
@@ -538,6 +572,29 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       console.error('Error checking in:', error);
       throw error;
     }
+  };
+
+  const refreshActiveAreaVisits = async (explicitFriendIds?: string[]): Promise<void> => {
+    if (!user) return;
+    try {
+      const friendIds = explicitFriendIds ?? friends.map((f) => f.id);
+      const visits = await userAreaVisitsApi.getActiveVisitsByUsers([user.id, ...friendIds]);
+      setActiveAreaVisits(visits);
+    } catch (e) {
+      console.error('Error refreshing area visits:', e);
+    }
+  };
+
+  const checkInArea = async (areaId: string): Promise<void> => {
+    if (!user) throw new Error('No user logged in');
+    await userAreaVisitsApi.recordVisit(user.id, areaId);
+    await refreshActiveAreaVisits();
+  };
+
+  const checkOutArea = async (areaId: string): Promise<void> => {
+    if (!user) throw new Error('No user logged in');
+    await userAreaVisitsApi.leaveArea(user.id, areaId);
+    await refreshActiveAreaVisits();
   };
 
   const checkOut = async (gymId: string): Promise<void> => {
@@ -788,6 +845,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     unfollowGym,
     checkIn,
     checkOut,
+    activeAreaVisits,
+    checkInArea,
+    checkOutArea,
     getWorkoutHistory,
     updateWorkoutHistory,
     deleteWorkoutHistory,

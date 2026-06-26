@@ -18,10 +18,14 @@ import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { chatApi, areaFeedApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useNetwork } from '../context/NetworkContext';
 import { ChatMessage } from '../types';
 import { supabase } from '../services/supabase';
 import BelayerRequestCard from '../components/BelayerRequestCard';
 import { colors } from '../theme/colors';
+
+/** Extends ChatMessage with a local-only pending flag for optimistic messages. */
+type LocalChatMessage = ChatMessage & { _pending?: boolean };
 
 type GroupChatRouteParams = {
   GroupChat: {
@@ -65,8 +69,9 @@ const GroupChatScreen: React.FC = () => {
   const navigation = useNavigation<GroupChatScreenNavigationProp>();
   const { user } = useAuth();
   const { groupId, groupName } = route.params;
+  const { isOffline } = useNetwork();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -78,59 +83,58 @@ const GroupChatScreen: React.FC = () => {
     loadChat();
   }, [groupId]);
 
-  // Set up real-time subscription
+  // Set up real-time subscription — skip when offline; resumes on reconnect
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || isOffline) return;
 
-    const subscription = supabase
-      .channel(`chat:${chatId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `chat_id=eq.${chatId}`,
-        },
-        async (payload) => {
-          // Fetch the new message with user data
-          try {
-            const newMessages = await chatApi.getChatMessages(chatId, 1);
-            if (newMessages.length > 0) {
-              const newMessage = newMessages[0];
-              // Filter out expired belayer request messages
-              if (isBelayerRequestExpired(newMessage)) {
-                return; // Don't add expired messages
+    let subscription: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      subscription = supabase
+        .channel(`chat:${chatId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages',
+            filter: `chat_id=eq.${chatId}`,
+          },
+          async (payload) => {
+            try {
+              const newMessages = await chatApi.getChatMessages(chatId, 1);
+              if (newMessages.length > 0) {
+                const newMessage = newMessages[0];
+                if (isBelayerRequestExpired(newMessage)) return;
+
+                setMessages((prev) => {
+                  // Replace matching pending optimistic message or skip true duplicate
+                  const dedupedPrev = prev.filter(
+                    (m) => !(m._pending && m.messageText === newMessage.messageText && m.senderUserId === newMessage.senderUserId)
+                  );
+                  if (dedupedPrev.some((m) => m.messageId === newMessage.messageId)) return dedupedPrev;
+                  const filteredPrev = dedupedPrev.filter((m) => !isBelayerRequestExpired(m));
+                  return [...filteredPrev, newMessage].sort(
+                    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                  );
+                });
+                if (newMessage.senderUserId !== user?.id && user?.id) {
+                  await chatApi.markMessageAsRead(newMessage.messageId, user.id);
+                }
               }
-              
-              setMessages((prev) => {
-                // Check if message already exists
-                const exists = prev.some((m) => m.messageId === newMessage.messageId);
-                if (exists) return prev;
-                
-                // Also filter out any expired messages from previous list
-                const filteredPrev = prev.filter((m) => !isBelayerRequestExpired(m));
-                
-                return [...filteredPrev, newMessage].sort(
-                  (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-                );
-              });
-              // Mark as read if not sent by current user
-              if (newMessage.senderUserId !== user?.id) {
-                await chatApi.markMessageAsRead(newMessage.messageId, user!.id);
-              }
+            } catch (error) {
+              console.error('Error fetching new message:', error);
             }
-          } catch (error) {
-            console.error('Error fetching new message:', error);
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn('GroupChat: subscription error', e);
+    }
 
     return () => {
-      subscription.unsubscribe();
+      try { subscription?.unsubscribe(); } catch {}
     };
-  }, [chatId, user?.id]);
+  }, [chatId, user?.id, isOffline]);
 
   // Periodically filter out expired belayer request messages (every 5 minutes)
   useEffect(() => {
@@ -157,12 +161,11 @@ const GroupChatScreen: React.FC = () => {
       setChatId(chat.chatId);
 
       const chatMessages = await chatApi.getChatMessages(chat.chatId, 50);
-      // Filter out expired belayer request messages
       const filteredMessages = chatMessages.filter((msg) => !isBelayerRequestExpired(msg));
-      setMessages(filteredMessages.reverse()); // Reverse to show oldest first
+      setMessages(filteredMessages.reverse());
 
-      // Mark all messages as read
-      if (user?.id && filteredMessages.length > 0) {
+      // Only mark read when online
+      if (!isOffline && user?.id && filteredMessages.length > 0) {
         const unreadMessageIds = filteredMessages
           .filter((m) => m.senderUserId !== user.id)
           .map((m) => m.messageId);
@@ -171,8 +174,8 @@ const GroupChatScreen: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error('Error loading chat:', error);
-      Alert.alert('Error', 'Failed to load chat messages');
+      // Offline or network error — stay on empty state rather than crashing
+      console.warn('GroupChat: failed to load chat', error);
     } finally {
       setLoading(false);
     }
@@ -183,20 +186,37 @@ const GroupChatScreen: React.FC = () => {
 
     const text = messageText.trim();
     setMessageText('');
-    setSending(true);
 
+    // Optimistic message — shown immediately; replaced by the real message on reconnect
+    const optimisticId = `pending-${Date.now()}`;
+    const optimistic: LocalChatMessage = {
+      messageId: optimisticId,
+      chatId,
+      senderUserId: user.id,
+      messageText: text,
+      messageType: 'text',
+      createdAt: new Date().toISOString(),
+      _pending: true,
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    setTimeout(() => { flatListRef.current?.scrollToEnd({ animated: true }); }, 100);
+
+    setSending(true);
     try {
       const newMessage = await chatApi.sendMessage(chatId, user.id, text, 'text');
-      setMessages((prev) => [...prev, newMessage]);
-      
-      // Scroll to bottom
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      setMessages((prev) =>
+        prev.map((m) => (m.messageId === optimisticId ? { ...newMessage, _pending: false } : m))
+      );
+      setTimeout(() => { flatListRef.current?.scrollToEnd({ animated: true }); }, 100);
     } catch (error) {
-      console.error('Error sending message:', error);
-      Alert.alert('Error', 'Failed to send message');
-      setMessageText(text); // Restore message text on error
+      if (isOffline) {
+        // Keep the optimistic message — it's queued and will send on reconnect
+      } else {
+        console.error('Error sending message:', error);
+        Alert.alert('Error', 'Failed to send message');
+        setMessages((prev) => prev.filter((m) => m.messageId !== optimisticId));
+        setMessageText(text);
+      }
     } finally {
       setSending(false);
     }
@@ -314,7 +334,7 @@ const GroupChatScreen: React.FC = () => {
     return date.toLocaleDateString();
   };
 
-  const renderMessage = ({ item }: { item: ChatMessage }) => {
+  const renderMessage = ({ item }: { item: LocalChatMessage }) => {
     const isOwnMessage = item.senderUserId === user?.id;
     const isSystemMessage = item.messageType === 'system';
     const isBelayerRequest = isSystemMessage && item.metadata?.action === 'belayer_request' && item.metadata?.postId;
@@ -370,6 +390,7 @@ const GroupChatScreen: React.FC = () => {
           style={[
             styles.messageBubble,
             isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble,
+            item._pending && styles.messageBubblePending,
           ]}
         >
           {!isOwnMessage && (
@@ -395,9 +416,13 @@ const GroupChatScreen: React.FC = () => {
           <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText]}>
             {item.messageText}
           </Text>
-          <Text style={[styles.messageTime, isOwnMessage && styles.ownMessageTime]}>
-            {formatTime(item.createdAt)}
-          </Text>
+          {item._pending ? (
+            <Text style={[styles.messageTime, styles.messageTimePending]}>Sending when online...</Text>
+          ) : (
+            <Text style={[styles.messageTime, isOwnMessage && styles.ownMessageTime]}>
+              {formatTime(item.createdAt)}
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -417,6 +442,14 @@ const GroupChatScreen: React.FC = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
+      {/* Offline notice */}
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Showing saved data — you're offline.</Text>
+        </View>
+      )}
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -425,6 +458,11 @@ const GroupChatScreen: React.FC = () => {
         contentContainerStyle={styles.messagesList}
         inverted={false}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No messages yet</Text>
+          </View>
+        }
       />
       <View style={styles.inputContainer}>
         <TouchableOpacity style={styles.mediaButton} onPress={handlePickImage}>
@@ -628,6 +666,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  messageBubblePending: { opacity: 0.65 },
+  messageTimePending: { fontSize: 11, color: colors.textFaded, marginTop: 4, fontStyle: 'italic' },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  offlineNoticeText: { fontSize: 12, color: colors.textMuted },
+  emptyState: { flex: 1, alignItems: 'center', paddingTop: 60 },
+  emptyStateText: { fontSize: 14, color: colors.textMuted },
 });
 
 export default GroupChatScreen;

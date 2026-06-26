@@ -7,37 +7,35 @@ import {
   TouchableOpacity,
   Alert,
   Switch,
-  Modal,
-  TextInput,
-  FlatList,
-  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
 import { useApp } from '../context/AppContext';
+import { useNetwork } from '../context/NetworkContext';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import LocationPermissionModal from '../components/LocationPermissionModal';
 import ClimbingProfileModal from '../components/ClimbingProfileModal';
-import { Gym, ClimbingProfile, BelayCertification, NotificationPreferences, UserAreaPlan, TripInvitation } from '../types';
+import { ClimbingProfile, BelayCertification, NotificationPreferences, UserAreaPlan, TripInvitation } from '../types';
 import { climbingProfileApi, notificationPreferencesApi, tripInvitationsApi } from '../services/api';
 import { invitationService } from '../services/invitations';
 import { colors } from '../theme/colors';
 
 const ProfileScreen: React.FC = () => {
   const { user, signOut, updateProfile, deleteAccount } = useAuth();
-  const { 
-    hasPermissions, 
-    requestPermissions, 
-    isTracking, 
-    startTracking, 
+  const {
+    hasPermissions,
+    requestPermissions,
+    isTracking,
+    startTracking,
     stopTracking,
     hasBackgroundPermission,
     isGeofencingActive,
   } = useLocation();
-  const { friends, gyms, followedGyms, followGym, unfollowGym, checkIn, checkOut, presence, refreshData, climbingAreas } = useApp();
+  const { climbingAreas } = useApp();
+  const { isOffline } = useNetwork();
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
@@ -46,10 +44,6 @@ const ProfileScreen: React.FC = () => {
   const [shareSchedule, setShareSchedule] = useState(user?.privacySettings?.shareSchedule ?? true);
   const [autoCheckIn, setAutoCheckIn] = useState(user?.privacySettings?.autoCheckIn ?? false);
   const [showLocationPermissionModal, setShowLocationPermissionModal] = useState(false);
-  const [searchModalVisible, setSearchModalVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-
   // Climbing profile state
   const [climbingProfile, setClimbingProfile] = useState<ClimbingProfile | null>(null);
   const [certifications, setCertifications] = useState<BelayCertification[]>([]);
@@ -99,7 +93,7 @@ const ProfileScreen: React.FC = () => {
           autoCheckIn,
         },
       });
-      if (normalizedPhone) {
+      if (!isOffline && normalizedPhone) {
         const pending = await invitationService.getPendingInvitations(normalizedPhone);
         for (const inv of pending) {
           try {
@@ -110,7 +104,12 @@ const ProfileScreen: React.FC = () => {
         }
       }
       setIsEditing(false);
-      Alert.alert('Success', 'Profile updated successfully');
+      Alert.alert(
+        'Success',
+        isOffline
+          ? 'Profile saved — will sync when back online.'
+          : 'Profile updated successfully'
+      );
     } catch (error) {
       Alert.alert('Error', 'Failed to update profile');
     }
@@ -224,86 +223,6 @@ const ProfileScreen: React.FC = () => {
   };
 
 
-  // Filter gyms by search (only climbing gyms are loaded)
-  const searchFilteredGyms = gyms.filter(gym => {
-    const matchesSearch = gym.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         gym.address.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
-
-  // Helper function to check if user is currently at a specific gym
-  const isUserAtGym = (gymId: string): boolean => {
-    if (!user) return false;
-    return presence.some(p => p.gymId === gymId && p.userId === user.id && p.isActive);
-  };
-
-  const handleFollowGym = async (gym: Gym) => {
-    try {
-      await followGym(gym.id);
-      Alert.alert('Success', `Now following ${gym.name}`);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to follow gym');
-    }
-  };
-
-  const handleUnfollowGym = async (gym: Gym) => {
-    Alert.alert(
-      'Unfollow Gym',
-      `Are you sure you want to unfollow ${gym.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Unfollow', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await unfollowGym(gym.id);
-            } catch (error) {
-              Alert.alert('Error', 'Failed to unfollow gym');
-            }
-          }
-        },
-      ]
-    );
-  };
-
-  const handleSearchGymFollow = async (gym: Gym) => {
-    const isFollowing = user?.followedGyms?.includes(gym.id);
-    if (isFollowing) {
-      await handleUnfollowGym(gym);
-    } else {
-      await handleFollowGym(gym);
-    }
-  };
-
-  const openSearchModal = () => {
-    setSearchQuery('');
-    setSearchModalVisible(true);
-  };
-
-  const closeSearchModal = () => {
-    setSearchModalVisible(false);
-    setSearchQuery('');
-  };
-
-  const handleCheckIn = async (gym: Gym) => {
-    try {
-      await checkIn(gym.id);
-      Alert.alert('Success', `Checked in to ${gym.name}`);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to check in');
-    }
-  };
-
-  const handleCheckOut = async (gym: Gym) => {
-    try {
-      await checkOut(gym.id);
-      Alert.alert('Success', `Checked out of ${gym.name}`);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to check out');
-    }
-  };
-
   const renderProfileSection = () => (
     <Card style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -375,207 +294,6 @@ const ProfileScreen: React.FC = () => {
       )}
     </Card>
   );
-
-  const renderMyGymsSection = () => {
-    const renderFollowedGymCard = ({ item }: { item: Gym }) => {
-      const isAtGym = isUserAtGym(item.id);
-      const currentUserCount = item.currentUsers?.length || 0;
-      const followerCount = item.followers?.length || 0;
-
-      return (
-        <Card style={styles.gymCard}>
-          <View style={styles.gymHeader}>
-            <View style={styles.gymInfo}>
-              <View style={[styles.gymIcon, { backgroundColor: colors.secondary }]}>
-                <Ionicons name="trending-up-outline" size={20} color="white" />
-              </View>
-              <View style={styles.gymDetails}>
-                <Text style={styles.gymName}>{item.name}</Text>
-                <Text style={styles.gymAddress}>{item.address}</Text>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.followButton}
-              onPress={() => handleUnfollowGym(item)}
-            >
-              <Ionicons 
-                name="heart" 
-                size={20} 
-                color={colors.error} 
-              />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.gymStats}>
-            <View style={styles.statItem}>
-              <Ionicons name="people-outline" size={16} color={colors.textMuted} />
-              <Text style={styles.statText}>
-                {currentUserCount} {currentUserCount === 1 ? 'person' : 'people'} here
-              </Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="heart-outline" size={16} color={colors.textMuted} />
-              <Text style={styles.statText}>
-                {followerCount} {followerCount === 1 ? 'follower' : 'followers'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.gymActions}>
-            {isAtGym ? (
-              <Button
-                title="Check Out"
-                variant="outline"
-                onPress={() => handleCheckOut(item)}
-                style={styles.checkOutButton}
-              />
-            ) : (
-              <Button
-                title="Check In"
-                onPress={() => handleCheckIn(item)}
-                style={styles.checkInButton}
-              />
-            )}
-          </View>
-        </Card>
-      );
-    };
-
-    const renderSearchGymCard = ({ item }: { item: Gym }) => {
-      const isFollowing = user?.followedGyms?.includes(item.id);
-      const currentUserCount = item.currentUsers?.length || 0;
-      const followerCount = item.followers?.length || 0;
-
-      return (
-        <Card style={styles.searchGymCard}>
-          <View style={styles.gymHeader}>
-            <View style={styles.gymInfo}>
-              <View style={[styles.gymIcon, { backgroundColor: colors.secondary }]}>
-                <Ionicons name="trending-up-outline" size={20} color="white" />
-              </View>
-              <View style={styles.gymDetails}>
-                <Text style={styles.gymName}>{item.name}</Text>
-                <Text style={styles.gymAddress}>{item.address}</Text>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.followButton}
-              onPress={() => handleSearchGymFollow(item)}
-            >
-              <Ionicons 
-                name={isFollowing ? "heart" : "heart-outline"} 
-                size={20} 
-                color={isFollowing ? colors.error : colors.textMuted} 
-              />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.gymStats}>
-            <View style={styles.statItem}>
-              <Ionicons name="people-outline" size={16} color={colors.textMuted} />
-              <Text style={styles.statText}>
-                {currentUserCount} {currentUserCount === 1 ? 'person' : 'people'} here
-              </Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="heart-outline" size={16} color={colors.textMuted} />
-              <Text style={styles.statText}>
-                {followerCount} {followerCount === 1 ? 'follower' : 'followers'}
-              </Text>
-            </View>
-          </View>
-        </Card>
-      );
-    };
-
-    const renderEmptyState = () => (
-      <View style={styles.emptyState}>
-        <Ionicons name="fitness-outline" size={48} color="#C7C7CC" />
-        <Text style={styles.emptyTitle}>No followed gyms</Text>
-        <Text style={styles.emptySubtitle}>
-          Tap "Find my gym" to search and follow climbing gyms
-        </Text>
-      </View>
-    );
-
-    const renderSearchEmptyState = () => (
-      <View style={styles.emptyState}>
-        <Ionicons name="search-outline" size={48} color="#C7C7CC" />
-        <Text style={styles.emptyTitle}>No climbing gyms found</Text>
-        <Text style={styles.emptySubtitle}>
-          Try a different search term
-        </Text>
-      </View>
-    );
-
-    return (
-      <View>
-        <Card style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>My Gyms</Text>
-            <Button
-              title="Find my gym"
-              onPress={openSearchModal}
-              style={styles.findGymButton}
-            />
-          </View>
-
-          {followedGyms.length === 0 ? (
-            renderEmptyState()
-          ) : (
-            <FlatList
-              data={followedGyms}
-              renderItem={renderFollowedGymCard}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={renderEmptyState}
-            />
-          )}
-        </Card>
-
-        {/* Search Modal */}
-        <Modal
-          visible={searchModalVisible}
-          animationType="slide"
-          presentationStyle="pageSheet"
-        >
-          <View style={styles.modalContainer}>
-            {/* Modal Header */}
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={closeSearchModal}>
-                <Ionicons name="close" size={24} color={colors.primary} />
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>Find Climbing Gyms</Text>
-              <View style={{ width: 24 }} />
-            </View>
-
-            {/* Search Bar */}
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color={colors.textMuted} style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search climbing gyms by name or address..."
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-              />
-            </View>
-
-            {/* Search Results */}
-            <FlatList
-              data={searchFilteredGyms}
-              renderItem={renderSearchGymCard}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.searchListContainer}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={renderSearchEmptyState}
-            />
-          </View>
-        </Modal>
-      </View>
-    );
-  };
 
   const handleAutoCheckInToggle = async (value: boolean) => {
     if (value && !hasBackgroundPermission) {
@@ -833,7 +551,12 @@ const ProfileScreen: React.FC = () => {
     try {
       setLoadingPreferences(true);
       await notificationPreferencesApi.updateNotificationPreferences(user.id, notificationPreferences);
-      Alert.alert('Success', 'Notification preferences updated');
+      Alert.alert(
+        'Success',
+        isOffline
+          ? 'Preferences saved — will sync when back online.'
+          : 'Notification preferences updated'
+      );
     } catch (error) {
       console.error('Error saving notification preferences:', error);
       Alert.alert('Error', 'Failed to update notification preferences');
@@ -1160,8 +883,16 @@ const ProfileScreen: React.FC = () => {
   return (
     <>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Offline notice */}
+        {isOffline && (
+          <View style={styles.offlineNotice}>
+            <Ionicons name="cloud-offline-outline" size={14} color={colors.textMuted} />
+            <Text style={styles.offlineNoticeText}>
+              Showing saved data — you're offline. Changes will sync when back online.
+            </Text>
+          </View>
+        )}
         {renderProfileSection()}
-        {renderMyGymsSection()}
         {renderClimbingProfileSection()}
         {renderTripInvitationsSection()}
         {renderNotificationSection()}
@@ -1193,6 +924,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  offlineNoticeText: { fontSize: 12, color: colors.textMuted, flex: 1 },
   section: {
     marginHorizontal: 16,
     marginVertical: 8,
@@ -1337,76 +1079,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     marginLeft: 4,
   },
-  // Gyms section styles
-  findGymButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  gymCard: {
-    marginBottom: 12,
-  },
-  searchGymCard: {
-    marginBottom: 8,
-  },
-  gymHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  gymInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  gymIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  gymDetails: {
-    flex: 1,
-  },
-  gymName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  gymAddress: {
-    fontSize: 14,
-    color: colors.textMuted,
-  },
-  followButton: {
-    padding: 8,
-  },
-  gymStats: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  statItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  statText: {
-    fontSize: 14,
-    color: colors.textMuted,
-    marginLeft: 4,
-  },
-  gymActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  checkInButton: {
-    minWidth: 120,
-  },
-  checkOutButton: {
-    minWidth: 120,
-  },
   emptyState: {
     paddingVertical: 32,
     alignItems: 'center',
@@ -1422,50 +1094,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textMuted,
     textAlign: 'center',
-  },
-  // Modal styles
-  modalContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    marginHorizontal: 16,
-    marginVertical: 16,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-  },
-  searchListContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
   },
   // Climbing profile styles
   climbingEditForm: {

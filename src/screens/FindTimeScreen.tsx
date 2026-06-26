@@ -17,10 +17,11 @@ import { colors } from '../theme/colors';
 import { workoutHistoryApi, groupsApi, calendarBusyBlocksApi } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useNetwork } from '../context/NetworkContext';
 import { hasCalendarAccess, syncUpcomingEvents } from '../services/googleCalendar';
 import {
   WorkoutHistory,
-  GroupsStackParamList,
+  FindStackParamList,
   WorkoutSession,
   CreateScheduleForm,
   CreateWorkoutInvitationData,
@@ -100,6 +101,7 @@ const FindTimeScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const { friends, addSchedule, createWorkoutInvitation } = useApp();
   const { user } = useAuth();
+  const { isOffline } = useNetwork();
 
   const params = route.params as FindTimeRouteParams;
 
@@ -407,7 +409,10 @@ const FindTimeScreen: React.FC = () => {
           associatedGroupIds: [],
         };
         await createWorkoutInvitation(newSchedule.id, invData);
-        Alert.alert('Done!', `Workout created and ${invitedFriends.length} ${invitedFriends.length === 1 ? 'person' : 'people'} invited.`);
+        const successMsg = isOffline
+          ? `Workout queued — invites to ${invitedFriends.length} ${invitedFriends.length === 1 ? 'person' : 'people'} will send when you reconnect.`
+          : `Workout created and ${invitedFriends.length} ${invitedFriends.length === 1 ? 'person' : 'people'} invited.`;
+        Alert.alert(isOffline ? 'Saved offline' : 'Done!', successMsg);
       }
 
       setShowInviteModal(false);
@@ -556,6 +561,14 @@ const FindTimeScreen: React.FC = () => {
           <Ionicons name="chevron-forward" size={20} color={colors.primary} />
         </TouchableOpacity>
       </View>
+
+      {/* ── Offline notice ─────────────────────────────────────────── */}
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={12} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Availability may be outdated — you're offline</Text>
+        </View>
+      )}
 
       {/* ── Heat map ────────────────────────────────────────────────── */}
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -715,9 +728,11 @@ const FindTimeScreen: React.FC = () => {
                     >
                       <Ionicons name="person-add-outline" size={16} color={colors.background} />
                       <Text style={styles.inviteBtnText}>
-                        Invite {selectedSlot.freeUsers.length === 1
-                          ? getUserName(selectedSlot.freeUsers[0])
-                          : `${selectedSlot.freeUsers.length} friends`} to climb
+                        {isOffline
+                          ? 'Queue invite — sends when online'
+                          : `Invite ${selectedSlot.freeUsers.length === 1
+                              ? getUserName(selectedSlot.freeUsers[0])
+                              : `${selectedSlot.freeUsers.length} friends`} to climb`}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -858,6 +873,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textMuted,
     marginTop: 2,
+  },
+
+  // Offline notice
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
+  offlineNoticeText: {
+    color: colors.textMuted,
+    fontSize: 11,
   },
 
   // Week nav

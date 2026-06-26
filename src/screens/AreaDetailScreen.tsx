@@ -5,6 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import {
   useNavigation,
@@ -17,22 +19,23 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
-import { climbingAreasApi, userAreaPlansApi, tripInvitationsApi, userApi } from '../services/api';
-import { ClimbingArea, UserAreaPlan, TripInvitation } from '../types';
+import { useNetwork } from '../context/NetworkContext';
+import { climbingAreasApi, userAreaPlansApi, tripInvitationsApi, userApi, userAreaVisitsApi } from '../services/api';
+import { ClimbingArea, UserAreaPlan, TripInvitation, FindStackParamList } from '../types';
 import AreaFeed from '../components/AreaFeed';
 import Button from '../components/Button';
 import BelayerRequestModal from '../components/BelayerRequestModal';
 import PlanTripModal from '../components/PlanTripModal';
 import InviteFriendsToTripModal from '../components/InviteFriendsToTripModal';
-import { GroupsStackParamList } from '../types';
 import { colors } from '../theme/colors';
+import { fetchWeather, WeatherData } from '../services/weather';
 import {
   clusterAreaPlans,
   formatTripClusterLabel,
   tripClusterKey,
 } from '../utils/tripClusterUtils';
 
-type AreaDetailRouteProp = RouteProp<GroupsStackParamList, 'AreaDetail'>;
+type AreaDetailRouteProp = RouteProp<FindStackParamList, 'AreaDetail'>;
 
 const AreaDetailScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
@@ -40,6 +43,7 @@ const AreaDetailScreen: React.FC = () => {
   const { areaId, highlightTripInvitationId } = route.params;
   const { user } = useAuth();
   const { followArea, unfollowArea, followedAreas, friends } = useApp();
+  const { isOffline } = useNetwork();
   const [area, setArea] = useState<ClimbingArea | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBelayerRequestModal, setShowBelayerRequestModal] = useState(false);
@@ -52,6 +56,8 @@ const AreaDetailScreen: React.FC = () => {
   >([]);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [clusterNameById, setClusterNameById] = useState<Record<string, string>>({});
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [friendsHereIds, setFriendsHereIds] = useState<string[]>([]);
 
   const scheduleFriends = useMemo(
     () => friends.filter((f) => f.privacySettings?.shareSchedule === true),
@@ -125,6 +131,18 @@ const AreaDetailScreen: React.FC = () => {
   useEffect(() => {
     if (areaId && user?.id) loadPlans();
   }, [areaId, user?.id]);
+
+  // Load weather once we have the area's coordinates
+  useEffect(() => {
+    if (!area?.latitude || !area?.longitude) return;
+    fetchWeather(area.latitude, area.longitude).then((w) => { if (w) setWeather(w); });
+  }, [area?.id]);
+
+  // Load friends currently at this area
+  useEffect(() => {
+    if (!user?.id || !areaId) return;
+    userAreaVisitsApi.getFriendsAtArea(user.id, areaId).then(setFriendsHereIds).catch(() => {});
+  }, [user?.id, areaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -263,6 +281,12 @@ const AreaDetailScreen: React.FC = () => {
           {area.name}
         </Text>
       </View>
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Showing saved data — you're offline.</Text>
+        </View>
+      )}
 
       <AreaFeed
         areaId={areaId}
@@ -319,6 +343,57 @@ const AreaDetailScreen: React.FC = () => {
               </View>
             )}
 
+            {/* Weather */}
+            {weather && (
+              <View style={styles.weatherCard}>
+                <View style={styles.weatherMain}>
+                  <Ionicons
+                    name={weather.isDry ? 'sunny-outline' : 'rainy-outline'}
+                    size={22}
+                    color={weather.isDry ? '#f5a623' : colors.primary}
+                  />
+                  <Text style={styles.weatherTemp}>{weather.temp}°F</Text>
+                  <Text style={styles.weatherDesc}>{weather.description}</Text>
+                  <View style={[styles.weatherBadge, weather.isDry ? styles.weatherBadgeDry : styles.weatherBadgeWet]}>
+                    <Text style={styles.weatherBadgeText}>{weather.isDry ? '✓ Dry' : '⚠ Wet'}</Text>
+                  </View>
+                </View>
+                <Text style={styles.weatherDetails}>
+                  {weather.humidity}% humidity · {weather.windSpeed} mph wind
+                </Text>
+              </View>
+            )}
+
+            {/* Friends at this crag now */}
+            {friendsHereIds.length > 0 && (
+              <View style={styles.friendsHereSection}>
+                <Text style={styles.sectionTitle}>
+                  Friends here now ({friendsHereIds.length})
+                </Text>
+                {friendsHereIds.map((fId) => {
+                  const friend = friends.find((f) => f.id === fId);
+                  if (!friend) return null;
+                  return (
+                    <TouchableOpacity
+                      key={fId}
+                      style={styles.friendHereRow}
+                      onPress={() => (navigation as any).navigate('FriendProfile', { userId: fId })}
+                    >
+                      {friend.avatar ? (
+                        <Image source={{ uri: friend.avatar }} style={styles.friendHereAvatar} />
+                      ) : (
+                        <View style={styles.friendHereAvatarPlaceholder}>
+                          <Text style={styles.friendHereAvatarText}>{friend.name.charAt(0)}</Text>
+                        </View>
+                      )}
+                      <Text style={styles.friendHereName}>{friend.name}</Text>
+                      <Ionicons name="chevron-forward" size={16} color={colors.textFaded} />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
             <View style={styles.areaMeta}>
               {area.region || area.country ? (
                 <Text style={styles.areaMetaText}>
@@ -332,7 +407,9 @@ const AreaDetailScreen: React.FC = () => {
                   color={isFollowing ? colors.primary : colors.textSecondary}
                 />
                 <Text style={[styles.followText, isFollowing && styles.followTextActive]}>
-                  {isFollowing ? ' Following ' : 'Follow area'}
+                  {isOffline
+                    ? (isFollowing ? 'Following (syncing)' : 'Follow (will sync)')
+                    : (isFollowing ? ' Following ' : 'Follow area')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -470,6 +547,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offlineNoticeText: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -581,6 +672,54 @@ const styles = StyleSheet.create({
   },
   primaryButton: { marginBottom: 0 },
   secondaryButton: { marginBottom: 0 },
+  weatherCard: {
+    padding: 14,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  weatherMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  weatherTemp: { fontSize: 20, fontWeight: '700', color: colors.text },
+  weatherDesc: { fontSize: 14, color: colors.textSecondary, flex: 1 },
+  weatherBadge: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  weatherBadgeDry: { backgroundColor: '#colors.primary' },
+  weatherBadgeWet: { backgroundColor: '#colors.primary' },
+  weatherBadgeText: { fontSize: 12, fontWeight: '600', color: colors.text },
+  weatherDetails: { fontSize: 12, color: colors.textMuted },
+  friendsHereSection: {
+    padding: 14,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  friendHereRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 7,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  friendHereAvatar: { width: 32, height: 32, borderRadius: 16 },
+  friendHereAvatarPlaceholder: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  friendHereAvatarText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  friendHereName: { flex: 1, fontSize: 14, color: colors.text },
   section: {
     padding: 16,
     backgroundColor: colors.surface,

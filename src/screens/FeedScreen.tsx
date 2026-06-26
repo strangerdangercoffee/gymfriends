@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
+import { useNetwork } from '../context/NetworkContext';
 import { useLocation } from '../context/LocationContext';
 import { userAreaVisitsApi } from '../services/api';
 import { UserAreaVisit, AreaFeedPost } from '../types';
@@ -32,6 +33,7 @@ const FeedScreen: React.FC = () => {
     followedAreas,
     workoutHistory,
   } = useApp();
+  const { isOffline } = useNetwork();
   const { hasPermissions, currentLocation } = useLocation();
   const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
@@ -221,10 +223,17 @@ const FeedScreen: React.FC = () => {
         )}
       </View>
 
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Showing saved data — you're offline.</Text>
+        </View>
+      )}
+
       {/* Post creation button */}
       <View style={styles.actionBar}>
         <Button
-          title="New Post"
+          title={isOffline ? 'New Post (will sync when back online)' : 'New Post'}
           onPress={() => setShowBelayerRequestModal(true)}
           disabled={!selectedFeed}
           style={styles.postButton}
@@ -368,6 +377,20 @@ const styles = StyleSheet.create({
   },
   emptyResultsText: {
     fontSize: 14,
+    color: colors.textMuted,
+  },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offlineNoticeText: {
+    fontSize: 12,
     color: colors.textMuted,
   },
   actionBar: {

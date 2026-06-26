@@ -11,7 +11,12 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { notificationService } from '../services/notifications';
-import { RootTabParamList, ScheduleStackParamList, GroupsStackParamList, MapStackParamList } from '../types';
+import {
+  RootTabParamList,
+  ScheduleStackParamList,
+  FindStackParamList,
+  MessagesStackParamList,
+} from '../types';
 import { colors } from '../theme/colors';
 
 // Import screens
@@ -19,16 +24,21 @@ import AuthScreen from '../screens/AuthScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import ScheduleScreen from '../screens/ScheduleScreen';
 import AddScheduleScreen from '../screens/AddScheduleScreen';
-import ConnectionsScreen from '../screens/ConnectionsScreen';
 import GroupChatScreen from '../screens/GroupChatScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import FeedScreen from '../screens/FeedScreen';
+import HomeScreen from '../screens/HomeScreen';
 import AreaFeedScreen from '../screens/AreaFeedScreen';
 import AreaDetailScreen from '../screens/AreaDetailScreen';
 import AreaFriendCalendarScreen from '../screens/AreaFriendCalendarScreen';
 import AreasMapScreen from '../screens/AreasMapScreen';
 import GymDetailScreen from '../screens/GymDetailScreen';
 import FindTimeScreen from '../screens/FindTimeScreen';
+
+// New screens
+import FindScreen from '../screens/FindScreen';
+import FriendProfileScreen from '../screens/FriendProfileScreen';
+import MessagesScreen from '../screens/MessagesScreen';
+import DirectChatScreen from '../screens/DirectChatScreen';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
@@ -39,17 +49,32 @@ function navigateToTripInvitationFromPush(data: Record<string, unknown>) {
   if (!navigationRef.isReady()) return;
   const invitationId =
     typeof data.invitationId === 'string' ? data.invitationId : undefined;
-  navigationRef.navigate('Friends' as never, {
+  (navigationRef as any).navigate('Find', {
     screen: 'AreaDetail',
     params: {
       areaId: data.areaId,
       highlightTripInvitationId: invitationId,
     },
-  } as never);
+  });
 }
+
 const ScheduleStack = createStackNavigator<ScheduleStackParamList>();
-const GroupsStack = createStackNavigator<GroupsStackParamList>();
-const MapStack = createStackNavigator<MapStackParamList>();
+const FindStack = createStackNavigator<FindStackParamList>();
+const MessagesStack = createStackNavigator<MessagesStackParamList>();
+
+const screenOptions = {
+  headerStyle: {
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  } as any,
+  headerTitleStyle: {
+    fontWeight: '600' as const,
+    fontSize: 18,
+    color: colors.text,
+  },
+  headerTintColor: colors.primary,
+};
 
 const LoadingScreen: React.FC = () => (
   <View style={styles.loadingContainer}>
@@ -57,223 +82,169 @@ const LoadingScreen: React.FC = () => (
   </View>
 );
 
-const ScheduleStackNavigator: React.FC = () => {
-  return (
-    <ScheduleStack.Navigator
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: colors.background,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        headerTitleStyle: {
-          fontWeight: '600',
-          fontSize: 18,
-          color: colors.text,
-        },
-        headerTintColor: colors.primary,
-      }}
-    >
-      <ScheduleStack.Screen 
-        name="ScheduleMain" 
-        component={ScheduleScreen}
-        options={{ title: 'My Schedule' }}
-      />
-      <ScheduleStack.Screen 
-        name="AddSchedule" 
-        component={AddScheduleScreen}
-        options={{ title: 'Add Schedule' }}
-      />
-    </ScheduleStack.Navigator>
-  );
-};
+const ScheduleStackNavigator: React.FC = () => (
+  <ScheduleStack.Navigator screenOptions={screenOptions}>
+    <ScheduleStack.Screen
+      name="ScheduleMain"
+      component={ScheduleScreen}
+      options={{ title: 'My Schedule' }}
+    />
+    <ScheduleStack.Screen
+      name="AddSchedule"
+      component={AddScheduleScreen}
+      options={{ title: 'Add Schedule' }}
+    />
+  </ScheduleStack.Navigator>
+);
 
-const GroupsStackNavigator: React.FC = () => {
-  return (
-    <GroupsStack.Navigator
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: colors.background,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        headerTitleStyle: {
-          fontWeight: '600',
-          fontSize: 18,
-          color: colors.text,
-        },
-        headerTintColor: colors.primary,
-      }}
-    >
-      <GroupsStack.Screen 
-        name="GroupsMain" 
-        component={ConnectionsScreen}
-        options={{ title: 'Connections', headerShown: false }}
-      />
-      <GroupsStack.Screen 
-        name="GroupChat" 
-        component={GroupChatScreen}
-        options={({ route }) => ({ title: route.params.groupName })}
-      />
-      <GroupsStack.Screen 
-        name="AreaFeed" 
-        component={AreaFeedScreen}
-        options={{ title: 'Area Feeds' }}
-      />
-      <GroupsStack.Screen 
-        name="AreasMap" 
-        component={AreasMapScreen}
-        options={{ title: 'Areas Map', headerShown: false }}
-      />
-      <GroupsStack.Screen 
-        name="AreaDetail" 
-        component={AreaDetailScreen}
-        options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
-      />
-      <GroupsStack.Screen
-        name="AreaFriendCalendar"
-        component={AreaFriendCalendarScreen}
-        options={({ route }) => ({
-          title: route.params.areaName ? `${route.params.areaName} · Trips` : 'Trip calendar',
-        })}
-      />
-      <GroupsStack.Screen
-        name="GymDetail"
-        component={GymDetailScreen}
-        options={({ route }) => ({ title: route.params?.gymId ? 'Gym' : 'Gym' })}
-      />
-      <GroupsStack.Screen
-        name="FriendSchedule"
-        component={FindTimeScreen}
-        options={({ route }) => ({ title: (route.params as any)?.userName ?? 'Schedule' })}
-      />
-      <GroupsStack.Screen
-        name="GroupSchedule"
-        component={FindTimeScreen}
-        options={({ route }) => ({ title: (route.params as any)?.groupName ?? 'Group Schedule' })}
-      />
-    </GroupsStack.Navigator>
-  );
-};
-
-const MapStackNavigator: React.FC = () => {
-  return (
-    <MapStack.Navigator
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: colors.background,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        headerTitleStyle: {
-          fontWeight: '600',
-          fontSize: 18,
-          color: colors.text,
-        },
-        headerTintColor: colors.primary,
-      }}
-    >
-      <MapStack.Screen 
-        name="MapMain" 
-        component={AreasMapScreen}
-        options={{ title: 'Map', headerShown: false }}
-      />
-      <MapStack.Screen 
-        name="AreaDetail" 
-        component={AreaDetailScreen}
-        options={({ route }) => ({ title: route.params.areaId ? 'Area' : 'Area' })}
-      />
-      <MapStack.Screen
-        name="AreaFriendCalendar"
-        component={AreaFriendCalendarScreen}
-        options={({ route }) => ({
-          title: route.params.areaName ? `${route.params.areaName} · Trips` : 'Trip calendar',
-        })}
-      />
-      <MapStack.Screen 
-        name="GymDetail" 
-        component={GymDetailScreen}
-        options={({ route }) => ({ title: route.params?.gymId ? 'Gym' : 'Gym' })}
-      />
-    </MapStack.Navigator>
-  );
-};
-
-const TabNavigator: React.FC = () => {
-  return (
-    <Tab.Navigator
-      initialRouteName="Map"
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: keyof typeof Ionicons.glyphMap;
-
-          if (route.name === 'Schedule') {
-            iconName = focused ? 'calendar' : 'calendar-outline';
-          } else if (route.name === 'Friends') {
-            iconName = focused ? 'people' : 'people-outline';
-          } else if (route.name === 'Map') {
-            iconName = focused ? 'globe' : 'globe-outline';
-          } else if (route.name === 'Feed') {
-            iconName = focused ? 'newspaper' : 'newspaper-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
-          } else {
-            iconName = 'help-outline';
-          }
-
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: colors.background,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
-          paddingBottom: 5,
-          paddingTop: 5,
-          height: 60,
-        },
-        headerStyle: {
-          backgroundColor: colors.background,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        headerTitleStyle: {
-          fontWeight: '600',
-          fontSize: 18,
-          color: colors.text,
-        },
-        headerTintColor: colors.primary,
+const FindStackNavigator: React.FC = () => (
+  <FindStack.Navigator screenOptions={screenOptions}>
+    <FindStack.Screen
+      name="FindMain"
+      component={FindScreen}
+      options={{ title: 'Find', headerShown: false }}
+    />
+    <FindStack.Screen
+      name="FriendProfile"
+      component={FriendProfileScreen}
+      options={{ title: 'Profile' }}
+    />
+    <FindStack.Screen
+      name="GymDetail"
+      component={GymDetailScreen}
+      options={{ title: 'Gym' }}
+    />
+    <FindStack.Screen
+      name="AreaDetail"
+      component={AreaDetailScreen}
+      options={{ title: 'Area' }}
+    />
+    <FindStack.Screen
+      name="AreaFriendCalendar"
+      component={AreaFriendCalendarScreen}
+      options={({ route }) => ({
+        title: route.params?.areaName ? `${route.params.areaName} · Trips` : 'Trip calendar',
       })}
-    >
-      <Tab.Screen 
-        name="Schedule" 
-        component={ScheduleStackNavigator}
-        options={{ title: 'Schedule', headerShown: false }}
-      />
-      <Tab.Screen 
-        name="Friends" 
-        component={GroupsStackNavigator}
-        options={{ title: 'Connections', headerShown: false }}
-      />
-      <Tab.Screen 
-        name="Map" 
-        component={MapStackNavigator}
-        options={{ title: 'Map', headerShown: false }}
-      />
-      <Tab.Screen 
-        name="Feed" 
-        component={FeedScreen}
-        options={{ title: 'Feed', headerShown: false }}
-      />
-      <Tab.Screen 
-        name="Profile" 
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
-      />
-    </Tab.Navigator>
-  );
-};
+    />
+    <FindStack.Screen
+      name="AreasMap"
+      component={AreasMapScreen}
+      options={{ title: 'Map', headerShown: false }}
+    />
+    <FindStack.Screen
+      name="FriendSchedule"
+      component={FindTimeScreen}
+      options={({ route }) => ({ title: (route.params as any)?.userName ?? 'Schedule' })}
+    />
+    <FindStack.Screen
+      name="GroupSchedule"
+      component={FindTimeScreen}
+      options={({ route }) => ({ title: (route.params as any)?.groupName ?? 'Group Schedule' })}
+    />
+  </FindStack.Navigator>
+);
+
+const HomeStack = createStackNavigator();
+
+const HomeStackNavigator: React.FC = () => (
+  <HomeStack.Navigator screenOptions={screenOptions}>
+    <HomeStack.Screen
+      name="HomeMain"
+      component={HomeScreen}
+      options={{ headerShown: false }}
+    />
+    <HomeStack.Screen
+      name="MySchedule"
+      component={ScheduleScreen}
+      options={{ title: 'My Schedule' }}
+    />
+  </HomeStack.Navigator>
+);
+
+const MessagesStackNavigator: React.FC = () => (
+  <MessagesStack.Navigator screenOptions={screenOptions}>
+    <MessagesStack.Screen
+      name="MessagesMain"
+      component={MessagesScreen}
+      options={{ title: 'Messages', headerShown: false }}
+    />
+    <MessagesStack.Screen
+      name="DirectChat"
+      component={DirectChatScreen}
+      options={({ route }) => ({ title: route.params.otherUserName })}
+    />
+    <MessagesStack.Screen
+      name="GroupChat"
+      component={GroupChatScreen}
+      options={({ route }) => ({ title: route.params.groupName })}
+    />
+  </MessagesStack.Navigator>
+);
+
+const TabNavigator: React.FC = () => (
+  <Tab.Navigator
+    initialRouteName="Home"
+    screenOptions={({ route }) => ({
+      tabBarIcon: ({ focused, color, size }) => {
+        let iconName: keyof typeof Ionicons.glyphMap;
+        if (route.name === 'Home') {
+          iconName = focused ? 'home' : 'home-outline';
+        } else if (route.name === 'Find') {
+          iconName = focused ? 'search' : 'search-outline';
+        } else if (route.name === 'Messages') {
+          iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+        } else if (route.name === 'Profile') {
+          iconName = focused ? 'person' : 'person-outline';
+        } else {
+          iconName = 'help-outline';
+        }
+        return <Ionicons name={iconName} size={size} color={color} />;
+      },
+      tabBarActiveTintColor: colors.primary,
+      tabBarInactiveTintColor: colors.textMuted,
+      tabBarStyle: {
+        backgroundColor: colors.background,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        paddingBottom: 5,
+        paddingTop: 5,
+        height: 60,
+      },
+      headerStyle: {
+        backgroundColor: colors.background,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      },
+      headerTitleStyle: {
+        fontWeight: '600',
+        fontSize: 18,
+        color: colors.text,
+      },
+      headerTintColor: colors.primary,
+    })}
+  >
+    <Tab.Screen
+      name="Home"
+      component={HomeStackNavigator}
+      options={{ title: 'Home', headerShown: false }}
+    />
+    <Tab.Screen
+      name="Find"
+      component={FindStackNavigator}
+      options={{ title: 'Find', headerShown: false }}
+    />
+    <Tab.Screen
+      name="Messages"
+      component={MessagesStackNavigator}
+      options={{ title: 'Messages', headerShown: false }}
+    />
+    <Tab.Screen
+      name="Profile"
+      component={ProfileScreen}
+      options={{ title: 'Profile' }}
+    />
+  </Tab.Navigator>
+);
 
 const AppNavigator: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
@@ -320,10 +291,7 @@ const AppNavigator: React.FC = () => {
     if (!user?.id || !hasCompletedOnboarding) return;
     const sub = notificationService.addNotificationResponseReceivedListener(
       (response) => {
-        const data = response.notification.request.content.data as Record<
-          string,
-          unknown
-        >;
+        const data = response.notification.request.content.data as Record<string, unknown>;
         navigateToTripInvitationFromPush(data || {});
       }
     );

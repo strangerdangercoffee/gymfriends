@@ -104,6 +104,8 @@ export interface Presence {
   checkedInAt: string; // ISO timestamp
   checkedOutAt?: string; // ISO timestamp
   isActive: boolean;
+  /** Whether the user is open to others joining their session. Defaults to true if not set. */
+  openToJoin?: boolean;
   location?: {
     latitude: number;
     longitude: number;
@@ -147,18 +149,28 @@ export interface WorkoutExercise {
 
 // Navigation types
 export type RootTabParamList = {
-  Schedule: undefined;
-  Friends: undefined; // Now shows ConnectionsScreen with Friends/Groups tabs
-  Map: undefined;
+  Home: undefined;
+  Find: undefined;
+  Messages: undefined;
   Feed: undefined;
   Profile: undefined;
 };
 
-export type MapStackParamList = {
-  MapMain: undefined;
+export type FindStackParamList = {
+  FindMain: undefined;
+  FriendProfile: { userId: string };
+  GymDetail: { gymId: string };
   AreaDetail: { areaId: string; highlightTripInvitationId?: string };
   AreaFriendCalendar: { areaId: string; areaName: string };
-  GymDetail: { gymId: string };
+  AreasMap: { focus?: 'gyms' | 'crags' } | undefined;
+  FriendSchedule: { mode: 'friend'; userId: string; userName: string };
+  GroupSchedule: { mode: 'group'; groupId: string; groupName: string };
+};
+
+export type MessagesStackParamList = {
+  MessagesMain: undefined;
+  DirectChat: { conversationId: string; otherUserId: string; otherUserName: string };
+  GroupChat: { groupId: string; groupName: string };
 };
 
 export type ScheduleStackParamList = {
@@ -166,6 +178,15 @@ export type ScheduleStackParamList = {
   AddSchedule: undefined;
 };
 
+/** @deprecated Use FindStackParamList instead */
+export type MapStackParamList = {
+  MapMain: undefined;
+  AreaDetail: { areaId: string; highlightTripInvitationId?: string };
+  AreaFriendCalendar: { areaId: string; areaName: string };
+  GymDetail: { gymId: string };
+};
+
+/** @deprecated Use FindStackParamList + MessagesStackParamList instead */
 export type GroupsStackParamList = {
   GroupsMain: undefined;
   GroupChat: { groupId: string; groupName: string };
@@ -174,10 +195,28 @@ export type GroupsStackParamList = {
   AreaDetail: { areaId: string; highlightTripInvitationId?: string };
   AreaFriendCalendar: { areaId: string; areaName: string };
   GymDetail: { gymId: string };
-  // Availability / Find Time screens
   FriendSchedule: { mode: 'friend'; userId: string; userName: string };
   GroupSchedule: { mode: 'group'; groupId: string; groupName: string };
 };
+
+// DM types
+export interface DMConversation {
+  id: string;
+  userA: string;
+  userB: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DMConversationSummary {
+  id: string;
+  otherUserId: string;
+  otherUserName?: string;
+  otherUserAvatar?: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  unreadCount: number;
+}
 
 // Component props types
 export interface GymCardProps {
@@ -415,8 +454,11 @@ export interface AppContextType {
   removeFriend: (userId: string) => Promise<void>;
   followGym: (gymId: string) => Promise<void>;
   unfollowGym: (gymId: string) => Promise<void>;
-  checkIn: (gymId: string) => Promise<void>;
+  checkIn: (gymId: string, openToJoin?: boolean) => Promise<void>;
   checkOut: (gymId: string) => Promise<void>;
+  activeAreaVisits: UserAreaVisit[];
+  checkInArea: (areaId: string) => Promise<void>;
+  checkOutArea: (areaId: string) => Promise<void>;
   getWorkoutHistory: (userId: string, startDate?: Date, endDate?: Date) => Promise<WorkoutHistory[]>;
   updateWorkoutHistory: (id: string, updates: Partial<WorkoutHistory>) => Promise<void>;
   deleteWorkoutHistory: (id: string) => Promise<void>;

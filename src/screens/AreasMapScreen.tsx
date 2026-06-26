@@ -18,15 +18,13 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
+import { useNetwork } from '../context/NetworkContext';
 import { userAreaVisitsApi } from '../services/api';
-import { ClimbingArea, Gym } from '../types';
-import { GroupsStackParamList, MapStackParamList } from '../types';
+import { ClimbingArea, Gym, FindStackParamList } from '../types';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { colors } from '../theme/colors';
 
-type AreasMapNav =
-  | StackNavigationProp<GroupsStackParamList, 'AreasMap'>
-  | StackNavigationProp<MapStackParamList, 'MapMain'>;
+type AreasMapNav = StackNavigationProp<FindStackParamList, 'AreasMap'>;
 
 type MapMode = 'areas' | 'gyms';
 
@@ -64,6 +62,7 @@ const AreasMapScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const { user } = useAuth();
+  const { isOffline } = useNetwork();
   const { climbingAreas, gyms, friends, presence: gymPresence } = useApp();
   const [mapMode, setMapMode] = useState<MapMode>('areas');
   const [presence, setPresence] = useState<{ areaId: string; userId: string }[]>([]);
@@ -259,12 +258,13 @@ const AreasMapScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        {navigation.canGoBack() ? (
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerSpacer} />
-        )}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : (navigation as any).navigate('FindMain')}
+        >
+          <Ionicons name="chevron-back" size={18} color={colors.primary} />
+          <Text style={styles.backButtonText}>List</Text>
+        </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>
             {mapMode === 'areas' ? 'CLIMBING AREAS' : 'GYMS'}
@@ -362,6 +362,13 @@ const AreasMapScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Showing saved data — you're offline.</Text>
+        </View>
+      )}
 
       <View style={styles.mapWrap}>
         <MapView
@@ -524,11 +531,20 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.primaryBorder,
   },
   backButton: {
-    padding: 4,
-    width: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    minWidth: 56,
+  },
+  backButtonText: {
+    fontSize: 15,
+    color: colors.primary,
+    fontWeight: '500',
   },
   headerSpacer: {
-    width: 40,
+    width: 56,
   },
   headerCenter: {
     flex: 1,
@@ -686,6 +702,20 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   legendText: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offlineNoticeText: {
     fontSize: 12,
     color: colors.textMuted,
   },

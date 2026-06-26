@@ -7,6 +7,8 @@ import { AuthProvider } from './src/context/AuthContext';
 import { LocationProvider } from './src/context/LocationContext';
 import { AppProvider } from './src/context/AppContext';
 import { OnboardingProvider } from './src/context/OnboardingContext';
+import { NetworkProvider } from './src/context/NetworkContext';
+import OfflineBanner from './src/components/OfflineBanner';
 import AppNavigator from './src/navigation/AppNavigator';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -30,16 +32,19 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <LocationProvider>
-          <OnboardingProvider>
-            <AppProvider>
-              <AppNavigator />
-              <StatusBar style="light" />
-            </AppProvider>
-          </OnboardingProvider>
-        </LocationProvider>
-      </AuthProvider>
+      <NetworkProvider>
+        <AuthProvider>
+          <LocationProvider>
+            <OnboardingProvider>
+              <AppProvider>
+                <OfflineBanner />
+                <AppNavigator />
+                <StatusBar style="light" />
+              </AppProvider>
+            </OnboardingProvider>
+          </LocationProvider>
+        </AuthProvider>
+      </NetworkProvider>
     </SafeAreaProvider>
   );
 }

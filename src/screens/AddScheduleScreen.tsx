@@ -14,6 +14,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useNetwork } from '../context/NetworkContext';
 import { Gym, CreateScheduleForm, ScheduleStackParamList } from '../types';
 import Card from '../components/Card';
 import Button from '../components/Button';
@@ -33,6 +34,7 @@ const AddScheduleScreen: React.FC = () => {
   const navigation = useNavigation<AddScheduleScreenNavigationProp>();
   const { gyms, addSchedule } = useApp();
   const { user } = useAuth();
+  const { isOffline } = useNetwork();
   const [selectedGym, setSelectedGym] = useState<Gym | null>(null);
   const [workoutType, setWorkoutType] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
@@ -114,7 +116,10 @@ const AddScheduleScreen: React.FC = () => {
         await addSchedule(scheduleData);
       }
 
-      Alert.alert('Success', 'Schedule created successfully!', [
+      const successMsg = isOffline
+        ? 'Schedule queued — it will sync when you reconnect.'
+        : 'Schedule created successfully!';
+      Alert.alert('Success', successMsg, [
         { text: 'OK', onPress: () => {
           navigation.goBack();
         }}
@@ -359,6 +364,12 @@ const AddScheduleScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
+      {isOffline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="cloud-offline-outline" size={12} color={colors.textMuted} />
+          <Text style={styles.offlineNoticeText}>Offline — schedule will sync when you reconnect</Text>
+        </View>
+      )}
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {renderGymSelector()}
         {renderWorkoutType()}
@@ -386,6 +397,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F2F2F7',
+  },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
+  offlineNoticeText: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
   scrollView: {
     flex: 1,

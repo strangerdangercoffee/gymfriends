@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 import { workoutHistoryGenerator } from './workoutHistoryGenerator';
 import { workoutInvitationService } from './workoutInvitations';
 import { notificationService } from './notifications';
-import { offlineCache } from './offlineCache';
+import { offlineCache, cacheGet, cacheSet, CACHE_PREFIX } from './offlineCache';
 import { offlineQueue } from './offlineQueue';
 import type { OfflineQueueRunner } from './offlineQueue';
 import { 
@@ -104,6 +104,7 @@ const transformPresenceFromDB = (dbPresence: any): Presence => ({
   checkedInAt: dbPresence.checked_in_at,
   checkedOutAt: dbPresence.checked_out_at,
   isActive: dbPresence.is_active,
+  openToJoin: dbPresence.open_to_join !== false, // default true if column missing
   location: dbPresence.location,
   createdAt: dbPresence.created_at,
   updatedAt: dbPresence.updated_at,
@@ -201,54 +202,69 @@ export const userApi = {
   },
 
   async getCurrentUser(): Promise<User | null> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (error) throw error;
-    
-    const transformedUser = transformUserFromDB(data);
-    
-    // OPTIMIZATION: Fetch friends and followed gyms in parallel instead of sequentially
     try {
-      const [friendsResult, gymsResult] = await Promise.all([
-        (supabase as any)
-          .from('user_friendships')
-          .select('friend_id')
-          .eq('user_id', user.id),
-        (supabase as any)
-          .from('user_gym_follows')
-          .select('gym_id')
-          .eq('user_id', user.id),
-      ]);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
 
-      // Handle friends result
-      if (friendsResult.error) {
-        console.error('Error fetching friends:', friendsResult.error);
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) throw error;
+
+      const transformedUser = transformUserFromDB(data);
+
+      // OPTIMIZATION: Fetch friends and followed gyms in parallel instead of sequentially
+      try {
+        const [friendsResult, gymsResult] = await Promise.all([
+          (supabase as any)
+            .from('user_friendships')
+            .select('friend_id')
+            .eq('user_id', user.id),
+          (supabase as any)
+            .from('user_gym_follows')
+            .select('gym_id')
+            .eq('user_id', user.id),
+        ]);
+
+        // Handle friends result
+        if (friendsResult.error) {
+          console.error('Error fetching friends:', friendsResult.error);
+          transformedUser.friends = [];
+        } else {
+          transformedUser.friends = (friendsResult.data || []).map((f: any) => f.friend_id);
+        }
+
+        // Handle followed gyms result
+        if (gymsResult.error) {
+          console.error('Error fetching followed gyms:', gymsResult.error);
+          transformedUser.followedGyms = [];
+        } else {
+          transformedUser.followedGyms = (gymsResult.data || []).map((g: any) => g.gym_id);
+        }
+      } catch (error) {
+        console.error('Error in parallel queries:', error);
         transformedUser.friends = [];
-      } else {
-        transformedUser.friends = (friendsResult.data || []).map((f: any) => f.friend_id);
+        transformedUser.followedGyms = [];
       }
 
-      // Handle followed gyms result
-      if (gymsResult.error) {
-        console.error('Error fetching followed gyms:', gymsResult.error);
-        transformedUser.followedGyms = [];
-      } else {
-        transformedUser.followedGyms = (gymsResult.data || []).map((g: any) => g.gym_id);
+      await cacheSet(`${CACHE_PREFIX}user:${user.id}`, transformedUser);
+      return transformedUser;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        // Try to infer userId from any locally available session — getUser itself may have thrown
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user?.id) {
+            const cached = await cacheGet<User>(`${CACHE_PREFIX}user:${session.user.id}`);
+            if (cached) return cached.data;
+          }
+        } catch { /* ignore */ }
       }
-    } catch (error) {
-      console.error('Error in parallel queries:', error);
-      transformedUser.friends = [];
-      transformedUser.followedGyms = [];
+      throw e;
     }
-    
-    return transformedUser;
   },
 
   async createUser(userData: Partial<User>): Promise<User> {
@@ -298,30 +314,75 @@ export const userApi = {
   },
 
   async updateUser(id: string, updates: Partial<User>): Promise<User> {
-    const dbData = transformUserToDB(updates);
-    const { data, error } = await (supabase as any)
-      .from('users')
-      .update({ ...dbData, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
+    try {
+      const dbData = transformUserToDB(updates);
+      const { data, error } = await (supabase as any)
+        .from('users')
+        .update({ ...dbData, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
 
-    if (error) throw error;
-    return transformUserFromDB(data);
+      if (error) throw error;
+      const updated = transformUserFromDB(data);
+      await cacheSet(`${CACHE_PREFIX}user:${id}`, updated);
+      return updated;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'update_profile', payload: { userId: id, updates: updates as Record<string, unknown> } });
+        // Return optimistic: merge updates onto cached user if available
+        const cached = await cacheGet<User>(`${CACHE_PREFIX}user:${id}`);
+        const base = cached?.data ?? ({ id, ...updates } as User);
+        return { ...base, ...updates };
+      }
+      throw e;
+    }
   },
 
   async getUserFriends(userId: string): Promise<User[]> {
-    const { data, error } = await (supabase as any)
-      .from('user_friendships')
-      .select(`
-        users!user_friendships_friend_id_fkey (
-          id, name, email, phone, phone_verified_at, avatar, privacy_settings, created_at, updated_at
-        )
-      `)
-      .eq('user_id', userId);
+    try {
+      const { data, error } = await (supabase as any)
+        .from('user_friendships')
+        .select(`
+          users!user_friendships_friend_id_fkey (
+            id, name, email, phone, phone_verified_at, avatar, privacy_settings, created_at, updated_at
+          )
+        `)
+        .eq('user_id', userId);
 
-    if (error) throw error;
-    return (data || []).map((item: any) => transformUserFromDB(item.users));
+      if (error) throw error;
+      const friends = (data || []).map((item: any) => transformUserFromDB(item.users));
+      await cacheSet(`${CACHE_PREFIX}friends:${userId}`, friends);
+      return friends;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<User[]>(`${CACHE_PREFIX}friends:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
+  },
+
+  /** Fetch a single user's public profile by ID. */
+  async getById(userId: string): Promise<User | null> {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      const user = transformUserFromDB(data);
+      await cacheSet(`${CACHE_PREFIX}user:${userId}`, user);
+      return user;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<User>(`${CACHE_PREFIX}user:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 
   /** Display names for user IDs (e.g. co-travelers not in friends list). RLS may limit rows. */
@@ -458,25 +519,38 @@ export const userApi = {
 // Gym API functions - Updated for junction tables (climbing gyms only)
 export const gymApi = {
   async getAllGyms(): Promise<Gym[]> {
-    const { data, error } = await supabase
-      .from('gyms')
-      .select('*')
-      .eq('category', 'climbing')
-      .order('name');
-
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('gyms').select('*').eq('category', 'climbing').order('name').then((r: any) => r)
+      );
+      if (error) throw error;
+      const gyms = data || [];
+      await cacheSet(`${CACHE_PREFIX}gyms`, gyms);
+      return gyms;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<Gym[]>(`${CACHE_PREFIX}gyms`);
+        if (cached?.data?.length) return cached.data;
+      }
+      throw e;
+    }
   },
 
   async getGymById(id: string): Promise<Gym> {
-    const { data, error } = await supabase
-      .from('gyms')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('gyms').select('*').eq('id', id).single().then((r: any) => r)
+      );
+      if (error) throw error;
+      await cacheSet(`${CACHE_PREFIX}gym:${id}`, data);
+      return data;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<Gym>(`${CACHE_PREFIX}gym:${id}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 
   async createGym(gymData: CreateGymForm): Promise<Gym> {
@@ -601,40 +675,74 @@ export const climbingAreasApi = {
 // User area follows (follow an area to see its feed)
 export const userAreaFollowsApi = {
   async follow(userId: string, areaId: string): Promise<void> {
-    const { error } = await (supabase as any)
-      .from('user_area_follows')
-      .insert([{ user_id: userId, area_id: areaId }]);
-    if (error && error.code !== '23505') throw error;
+    try {
+      const { error } = await (supabase as any)
+        .from('user_area_follows')
+        .insert([{ user_id: userId, area_id: areaId }]);
+      if (error && error.code !== '23505') throw error;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'follow_area', payload: { userId, areaId } });
+        return;
+      }
+      throw e;
+    }
   },
 
   async unfollow(userId: string, areaId: string): Promise<void> {
-    const { error } = await (supabase as any)
-      .from('user_area_follows')
-      .delete()
-      .eq('user_id', userId)
-      .eq('area_id', areaId);
-    if (error) throw error;
+    try {
+      const { error } = await (supabase as any)
+        .from('user_area_follows')
+        .delete()
+        .eq('user_id', userId)
+        .eq('area_id', areaId);
+      if (error) throw error;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'unfollow_area', payload: { userId, areaId } });
+        return;
+      }
+      throw e;
+    }
   },
 
   async getFollowedAreaIds(userId: string): Promise<string[]> {
-    const { data, error } = await (supabase as any)
-      .from('user_area_follows')
-      .select('area_id')
-      .eq('user_id', userId);
-    if (error) throw error;
-    return (data || []).map((r: any) => r.area_id);
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('user_area_follows').select('area_id').eq('user_id', userId).then((r: any) => r)
+      );
+      if (error) throw error;
+      const ids = (data || []).map((r: any) => r.area_id);
+      await cacheSet(`${CACHE_PREFIX}followed_areas:${userId}`, ids);
+      return ids;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<string[]>(`${CACHE_PREFIX}followed_areas:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 
   async getFollowedAreas(userId: string): Promise<ClimbingArea[]> {
-    const { data, error } = await (supabase as any)
-      .from('user_area_follows')
-      .select('climbing_areas(*)')
-      .eq('user_id', userId);
-    if (error) throw error;
-    return (data || [])
-      .map((r: any) => r.climbing_areas)
-      .filter(Boolean)
-      .map(transformClimbingAreaFromDB);
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('user_area_follows').select('climbing_areas(*)').eq('user_id', userId).then((r: any) => r)
+      );
+      if (error) throw error;
+      const areas = (data || [])
+        .map((r: any) => r.climbing_areas)
+        .filter(Boolean)
+        .map(transformClimbingAreaFromDB);
+      await cacheSet(`${CACHE_PREFIX}followed_areas_full:${userId}`, areas);
+      return areas;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<ClimbingArea[]>(`${CACHE_PREFIX}followed_areas_full:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 };
 
@@ -770,6 +878,20 @@ export const userAreaVisitsApi = {
       .gte('last_seen_at', since);
     if (error) throw error;
     return (data || []).map((r: any) => ({ areaId: r.area_id, userId: r.user_id }));
+  },
+
+  /** Fetch active visits (no left_at, seen in last 24h) for a list of user IDs in one query. */
+  async getActiveVisitsByUsers(userIds: string[]): Promise<UserAreaVisit[]> {
+    if (userIds.length === 0) return [];
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await (supabase as any)
+      .from('user_area_visits')
+      .select('*')
+      .in('user_id', userIds)
+      .is('left_at', null)
+      .gte('last_seen_at', since);
+    if (error) throw error;
+    return (data || []).map(transformUserAreaVisitFromDB);
   },
 
   /**
@@ -1023,21 +1145,28 @@ export const tripInvitationsApi = {
 // Presence API functions - Updated for junction table
 export const presenceApi = {
   async getCurrentPresence(userId: string): Promise<Presence[]> {
-    const { data, error } = await (supabase as any)
-      .from('user_gym_presence')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_active', true);
-
-    if (error) throw error;
-    return (data || []).map(transformPresenceFromDB);
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('user_gym_presence').select('*').eq('user_id', userId).eq('is_active', true).then((r: any) => r)
+      );
+      if (error) throw error;
+      const presence = (data || []).map(transformPresenceFromDB);
+      await cacheSet(`${CACHE_PREFIX}presence:${userId}`, presence);
+      return presence;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<Presence[]>(`${CACHE_PREFIX}presence:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 
-  async checkIn(userId: string, gymId: string, location?: { latitude: number; longitude: number }): Promise<Presence> {
+  async checkIn(userId: string, gymId: string, location?: { latitude: number; longitude: number }, openToJoin: boolean = true): Promise<Presence> {
     try {
       await (supabase as any)
         .from('user_gym_presence')
-        .update({ 
+        .update({
           is_active: false,
           checked_out_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -1052,7 +1181,8 @@ export const presenceApi = {
           gym_id: gymId,
           checked_in_at: new Date().toISOString(),
           is_active: true,
-          location,
+          ...(openToJoin !== undefined ? { open_to_join: openToJoin } : {}),
+          ...(location ? { location } : {}),
         }])
         .select()
         .single();
@@ -1101,14 +1231,21 @@ export const presenceApi = {
   },
 
   async getGymPresence(gymId: string): Promise<Presence[]> {
-    const { data, error } = await (supabase as any)
-      .from('user_gym_presence')
-      .select('*')
-      .eq('gym_id', gymId)
-      .eq('is_active', true);
-
-    if (error) throw error;
-    return (data || []).map(transformPresenceFromDB);
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('user_gym_presence').select('*').eq('gym_id', gymId).eq('is_active', true).then((r: any) => r)
+      );
+      if (error) throw error;
+      const presence = (data || []).map(transformPresenceFromDB);
+      await cacheSet(`${CACHE_PREFIX}gym_presence:${gymId}`, presence);
+      return presence;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<Presence[]>(`${CACHE_PREFIX}gym_presence:${gymId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 
   async getAllActivePresence(gymIds?: string[], userIds?: string[]): Promise<Presence[]> {
@@ -1137,14 +1274,21 @@ export const presenceApi = {
 // Schedule API functions (unchanged)
 export const scheduleApi = {
   async getUserSchedules(userId: string): Promise<Schedule[]> {
-    const { data, error } = await supabase
-      .from('schedules')
-      .select('*')
-      .eq('user_id', userId)
-      .order('start_time');
-
-    if (error) throw error;
-    return (data || []).map(transformScheduleFromDB);
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('schedules').select('*').eq('user_id', userId).order('start_time').then((r: any) => r)
+      );
+      if (error) throw error;
+      const schedules = (data || []).map(transformScheduleFromDB);
+      await cacheSet(`${CACHE_PREFIX}schedule:${userId}`, schedules);
+      return schedules;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<Schedule[]>(`${CACHE_PREFIX}schedule:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 
   async createSchedule(scheduleData: CreateScheduleForm, userId: string): Promise<Schedule> {
@@ -1161,11 +1305,37 @@ export const scheduleApi = {
       status: 'planned' as const,
     };
 
-    const { data, error } = await (supabase as any)
-      .from('schedules')
-      .insert([dbData])
-      .select()
-      .single();
+    let data: any;
+    let error: any;
+    try {
+      const result = await (supabase as any)
+        .from('schedules')
+        .insert([dbData])
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'schedule_create', payload: { payload: dbData as Record<string, unknown> } });
+        return {
+          id: 'pending',
+          userId,
+          gymId: scheduleData.gymId,
+          startTime: scheduleData.startTime.toISOString(),
+          endTime: scheduleData.endTime.toISOString(),
+          isRecurring: scheduleData.isRecurring,
+          recurringPattern: scheduleData.recurringPattern,
+          workoutType: scheduleData.workoutType,
+          title: scheduleData.title || scheduleData.workoutType || 'Workout',
+          notes: scheduleData.notes,
+          status: 'planned',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        } as Schedule;
+      }
+      throw e;
+    }
 
     if (error) throw error;
     
@@ -1251,18 +1421,30 @@ export const scheduleApi = {
 
   async updateSchedule(id: string, updates: Partial<Schedule>): Promise<Schedule> {
     const dbData = transformScheduleToDB(updates);
-    const { data, error } = await (supabase as any)
-      .from('schedules')
-      .update({ 
-        ...dbData, 
-        updated_at: new Date().toISOString() 
-      })
-      .eq('id', id)
-      .select()
-      .single();
+    let data: any;
+    let error: any;
+    try {
+      const result = await (supabase as any)
+        .from('schedules')
+        .update({
+          ...dbData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'schedule_update', payload: { scheduleId: id, updates: updates as Record<string, unknown> } });
+        return { id, userId: '', gymId: '', startTime: '', endTime: '', isRecurring: false, status: 'planned', createdAt: '', updatedAt: '', ...updates } as Schedule;
+      }
+      throw e;
+    }
 
     if (error) throw error;
-    
+
     const schedule = transformScheduleFromDB(data);
     
     // Regenerate workout history for recurring schedules
@@ -1290,13 +1472,21 @@ export const scheduleApi = {
       console.error('Failed to delete future workout history:', historyError);
       // Continue with schedule deletion even if history deletion fails
     }
-    
-    const { error } = await supabase
-      .from('schedules')
-      .delete()
-      .eq('id', id);
 
-    if (error) throw error;
+    try {
+      const { error } = await supabase
+        .from('schedules')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'schedule_delete', payload: { scheduleId: id } });
+        return;
+      }
+      throw e;
+    }
   },
 
   async regenerateWorkoutHistory(scheduleId: string): Promise<void> {
@@ -1717,26 +1907,41 @@ export const groupsApi = {
   },
 
   async getUserGroups(userId: string): Promise<any[]> {
-    const { data, error } = await (supabase as any)
-      .from('group_members')
-      .select(`
-        group_id,
-        role,
-        joined_at,
-        groups (
-          group_id,
-          name,
-          description,
-          privacy,
-          location_type,
-          associated_gym_id,
-          associated_city,
-          associated_crag,
-          avatar_url,
-          created_at
-        )
-      `)
-      .eq('user_id', userId);
+    let data: any;
+    let error: any;
+    try {
+      const result: any = await withTimeout(
+        (supabase as any)
+          .from('group_members')
+          .select(`
+            group_id,
+            role,
+            joined_at,
+            groups (
+              group_id,
+              name,
+              description,
+              privacy,
+              location_type,
+              associated_gym_id,
+              associated_city,
+              associated_crag,
+              avatar_url,
+              created_at
+            )
+          `)
+          .eq('user_id', userId)
+          .then((r: any) => r)
+      );
+      data = result.data;
+      error = result.error;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<any[]>(`${CACHE_PREFIX}groups:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
 
     if (error) throw error;
 
@@ -1813,6 +2018,7 @@ export const groupsApi = {
       })
       .filter((group: any) => group !== null);
 
+    await cacheSet(`${CACHE_PREFIX}groups:${userId}`, groupsWithCounts);
     return groupsWithCounts;
   },
 
@@ -2291,42 +2497,53 @@ export const chatApi = {
   },
 
   async getChatMessages(chatId: string, limit: number = 50, before?: Date): Promise<any[]> {
-    let query = (supabase as any)
-      .from('chat_messages')
-      .select(`
-        *,
-        users!chat_messages_sender_user_id_fkey (
-          id,
-          name,
-          avatar
-        )
-      `)
-      .eq('chat_id', chatId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    try {
+      let query = (supabase as any)
+        .from('chat_messages')
+        .select(`
+          *,
+          users!chat_messages_sender_user_id_fkey (
+            id,
+            name,
+            avatar
+          )
+        `)
+        .eq('chat_id', chatId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
-    if (before) {
-      query = query.lt('created_at', before.toISOString());
+      if (before) {
+        query = query.lt('created_at', before.toISOString());
+      }
+
+      const { data, error }: any = await withTimeout(query.then((r: any) => r));
+
+      if (error) throw error;
+
+      const messages = (data || []).map((msg: any) => ({
+        messageId: msg.message_id,
+        chatId: msg.chat_id,
+        senderUserId: msg.sender_user_id,
+        senderName: msg.users?.name,
+        senderAvatar: msg.users?.avatar,
+        messageText: msg.message_text,
+        messageType: msg.message_type,
+        metadata: msg.metadata || {},
+        createdAt: msg.created_at,
+        editedAt: msg.edited_at,
+        deletedAt: msg.deleted_at,
+      }));
+
+      if (!before) await cacheSet(`${CACHE_PREFIX}group_messages:${chatId}`, messages);
+      return messages;
+    } catch (e) {
+      if (isNetworkError(e) && !before) {
+        const cached = await cacheGet<any[]>(`${CACHE_PREFIX}group_messages:${chatId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
     }
-
-    const { data, error } = await query;
-
-    if (error) throw error;
-
-    return (data || []).map((msg: any) => ({
-      messageId: msg.message_id,
-      chatId: msg.chat_id,
-      senderUserId: msg.sender_user_id,
-      senderName: msg.users?.name,
-      senderAvatar: msg.users?.avatar,
-      messageText: msg.message_text,
-      messageType: msg.message_type,
-      metadata: msg.metadata || {},
-      createdAt: msg.created_at,
-      editedAt: msg.edited_at,
-      deletedAt: msg.deleted_at,
-    }));
   },
 
   async sendMessage(
@@ -2336,40 +2553,61 @@ export const chatApi = {
     messageType: 'text' | 'image' | 'video' | 'workout-share' | 'system' = 'text',
     metadata?: any
   ): Promise<any> {
-    const { data, error } = await (supabase as any)
-      .from('chat_messages')
-      .insert([{
-        chat_id: chatId,
-        sender_user_id: senderUserId,
-        message_text: messageText,
-        message_type: messageType,
-        metadata: metadata || {},
-      }])
-      .select(`
-        *,
-        users!chat_messages_sender_user_id_fkey (
-          id,
-          name,
-          avatar
-        )
-      `)
-      .single();
+    const clientId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    try {
+      const { data, error } = await (supabase as any)
+        .from('chat_messages')
+        .insert([{
+          chat_id: chatId,
+          sender_user_id: senderUserId,
+          message_text: messageText,
+          message_type: messageType,
+          metadata: metadata || {},
+        }])
+        .select(`
+          *,
+          users!chat_messages_sender_user_id_fkey (
+            id,
+            name,
+            avatar
+          )
+        `)
+        .single();
 
-    if (error) throw error;
+      if (error) throw error;
 
-    return {
-      messageId: data.message_id,
-      chatId: data.chat_id,
-      senderUserId: data.sender_user_id,
-      senderName: data.users?.name,
-      senderAvatar: data.users?.avatar,
-      messageText: data.message_text,
-      messageType: data.message_type,
-      metadata: data.metadata || {},
-      createdAt: data.created_at,
-      editedAt: data.edited_at,
-      deletedAt: data.deleted_at,
-    };
+      return {
+        messageId: data.message_id,
+        chatId: data.chat_id,
+        senderUserId: data.sender_user_id,
+        senderName: data.users?.name,
+        senderAvatar: data.users?.avatar,
+        messageText: data.message_text,
+        messageType: data.message_type,
+        metadata: data.metadata || {},
+        createdAt: data.created_at,
+        editedAt: data.edited_at,
+        deletedAt: data.deleted_at,
+      };
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'send_group_message', payload: { groupId: chatId, senderId: senderUserId, text: messageText, clientId } });
+        return {
+          messageId: clientId,
+          chatId,
+          senderUserId,
+          senderName: undefined,
+          senderAvatar: undefined,
+          messageText,
+          messageType,
+          metadata: metadata || {},
+          createdAt: new Date().toISOString(),
+          editedAt: null,
+          deletedAt: null,
+        };
+      }
+      throw e;
+    }
   },
 
   async markMessageAsRead(messageId: string, userId: string): Promise<void> {
@@ -2600,47 +2838,56 @@ export const chatApi = {
 // Climbing Profile API functions
 export const climbingProfileApi = {
   async getClimbingProfile(userId: string): Promise<any | null> {
-    const { data, error } = await (supabase as any)
-      .from('climbing_profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any).from('climbing_profiles').select('*').eq('user_id', userId).single().then((r: any) => r)
+      );
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No profile found
-        return null;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No profile found
+          return null;
+        }
+        throw error;
       }
-      throw error;
+
+      if (!data) return null;
+
+      const profile = {
+        profileId: data.profile_id,
+        userId: data.user_id,
+        leadClimbing: data.lead_climbing,
+        leadGradeSystem: data.lead_grade_system,
+        leadGradeMin: data.lead_grade_min,
+        leadGradeMax: data.lead_grade_max,
+        topRope: data.top_rope,
+        topRopeGradeSystem: data.top_rope_grade_system,
+        topRopeGradeMin: data.top_rope_grade_min,
+        topRopeGradeMax: data.top_rope_grade_max,
+        bouldering: data.bouldering,
+        boulderGradeSystem: data.boulder_grade_system,
+        boulderMaxFlash: data.boulder_max_flash,
+        boulderMaxSend: data.boulder_max_send,
+        traditionalClimbing: data.traditional_climbing,
+        traditionalGradeSystem: data.traditional_grade_system,
+        traditionalGradeMin: data.traditional_grade_min,
+        traditionalGradeMax: data.traditional_grade_max,
+        openToNewPartners: data.open_to_new_partners,
+        preferredGradeRangeMin: data.preferred_grade_range_min,
+        preferredGradeRangeMax: data.preferred_grade_range_max,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+      };
+      await cacheSet(`${CACHE_PREFIX}climbing_profile:${userId}`, profile);
+      return profile;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<any>(`${CACHE_PREFIX}climbing_profile:${userId}`);
+        if (cached) return cached.data;
+        return null; // no profile cached = safe to return null
+      }
+      throw e;
     }
-
-    if (!data) return null;
-
-    return {
-      profileId: data.profile_id,
-      userId: data.user_id,
-      leadClimbing: data.lead_climbing,
-      leadGradeSystem: data.lead_grade_system,
-      leadGradeMin: data.lead_grade_min,
-      leadGradeMax: data.lead_grade_max,
-      topRope: data.top_rope,
-      topRopeGradeSystem: data.top_rope_grade_system,
-      topRopeGradeMin: data.top_rope_grade_min,
-      topRopeGradeMax: data.top_rope_grade_max,
-      bouldering: data.bouldering,
-      boulderGradeSystem: data.boulder_grade_system,
-      boulderMaxFlash: data.boulder_max_flash,
-      boulderMaxSend: data.boulder_max_send,
-      traditionalClimbing: data.traditional_climbing,
-      traditionalGradeSystem: data.traditional_grade_system,
-      traditionalGradeMin: data.traditional_grade_min,
-      traditionalGradeMax: data.traditional_grade_max,
-      openToNewPartners: data.open_to_new_partners,
-      preferredGradeRangeMin: data.preferred_grade_range_min,
-      preferredGradeRangeMax: data.preferred_grade_range_max,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    };
   },
 
   async createOrUpdateClimbingProfile(userId: string, profile: Partial<any>): Promise<any> {
@@ -3126,44 +3373,52 @@ export const areaFeedApi = {
     userId: string,
     message?: string
   ): Promise<any> {
-    // Check if user already responded
-    const { data: existing } = await (supabase as any)
-      .from('belayer_request_responses')
-      .select('*')
-      .eq('post_id', postId)
-      .eq('responder_user_id', userId)
-      .single();
+    try {
+      // Check if user already responded
+      const { data: existing } = await (supabase as any)
+        .from('belayer_request_responses')
+        .select('*')
+        .eq('post_id', postId)
+        .eq('responder_user_id', userId)
+        .single();
 
-    if (existing) {
-      // Update existing response
+      if (existing) {
+        // Update existing response
+        const { data, error } = await (supabase as any)
+          .from('belayer_request_responses')
+          .update({
+            status: 'available',
+            message: message || null,
+          })
+          .eq('response_id', existing.response_id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        return this.transformBelayerResponse(data);
+      }
+
+      // Create new response
       const { data, error } = await (supabase as any)
         .from('belayer_request_responses')
-        .update({
+        .insert([{
+          post_id: postId,
+          responder_user_id: userId,
           status: 'available',
           message: message || null,
-        })
-        .eq('response_id', existing.response_id)
+        }])
         .select()
         .single();
 
       if (error) throw error;
       return this.transformBelayerResponse(data);
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'belayer_request_respond', payload: { requestId: postId, status: 'available' } });
+        return { responseId: 'pending', postId, responderUserId: userId, status: 'available', message: message ?? null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      }
+      throw e;
     }
-
-    // Create new response
-    const { data, error } = await (supabase as any)
-      .from('belayer_request_responses')
-      .insert([{
-        post_id: postId,
-        responder_user_id: userId,
-        status: 'available',
-        message: message || null,
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return this.transformBelayerResponse(data);
   },
 
   async getBelayerRequestResponses(postId: string): Promise<any[]> {
@@ -3243,6 +3498,24 @@ export const areaFeedApi = {
     }
   },
 
+  async getPostsByAuthor(userId: string, limit: number = 20): Promise<any[]> {
+    const { data, error } = await (supabase as any)
+      .from('area_feed_posts')
+      .select(`
+        *,
+        users!area_feed_posts_author_user_id_fkey (id, name, avatar),
+        gyms!area_feed_posts_gym_id_fkey (id, name),
+        climbing_areas!area_feed_posts_area_id_fkey (id, name)
+      `)
+      .eq('author_user_id', userId)
+      .is('deleted_at', null)
+      .eq('quarantined', false)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
+  },
+
   transformBelayerResponse(data: any): any {
     return {
       responseId: data.response_id,
@@ -3264,6 +3537,9 @@ export const belayerRequestApi = {
     userId: string,
     requestData: any
   ): Promise<any> {
+    // NOTE: offline queuing for belayer_request_create is handled inside areaFeedApi.createFeedPost
+    // which already queues area_feed_post. The belayer_request_create queue entry is for
+    // scenarios where we want explicit re-routing on flush.
     // Create the feed post
     const post = await areaFeedApi.createFeedPost({
       authorUserId: userId,
@@ -3454,69 +3730,73 @@ export const belayerRequestApi = {
 // Notification Preferences API
 export const notificationPreferencesApi = {
   async getNotificationPreferences(userId: string): Promise<any> {
-    const { data, error } = await (supabase as any)
-      .from('notification_preferences')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
+    const defaults = {
+      preferenceId: '',
+      userId,
+      workoutInvitations: true,
+      workoutResponses: true,
+      workoutBails: true,
+      workoutReminders: true,
+      friendAtGym: true,
+      friendAtCrag: true,
+      groupMessages: true,
+      belayerRequests: true,
+      belayerResponses: true,
+      matchingPartners: true,
+      groupBelayerAlerts: true,
+      feedResponses: true,
+      feedMentions: true,
+      friendTripAnnouncements: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    let data: any;
+    let error: any;
+    try {
+      const result: any = await withTimeout(
+        (supabase as any).from('notification_preferences').select('*').eq('user_id', userId).single().then((r: any) => r)
+      );
+      data = result.data;
+      error = result.error;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<any>(`${CACHE_PREFIX}notif_prefs:${userId}`);
+        return cached ? cached.data : defaults;
+      }
+      throw e;
+    }
 
     if (error) {
       if (error.code === 'PGRST116') {
         // No preferences found, return defaults
-        return {
-          preferenceId: '',
-          userId,
-          // Workout notifications
-          workoutInvitations: true,
-          workoutResponses: true,
-          workoutBails: true,
-          workoutReminders: true,
-          // Social notifications
-          friendAtGym: true,
-          friendAtCrag: true,
-          groupMessages: true,
-          // Belayer/climbing partner notifications
-          belayerRequests: true,
-          belayerResponses: true,
-          matchingPartners: true,
-          groupBelayerAlerts: true,
-          // Feed notifications
-          feedResponses: true,
-          feedMentions: true,
-          // Trip planning
-          friendTripAnnouncements: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+        return defaults;
       }
       throw error;
     }
 
-    return {
+    const prefs = {
       preferenceId: data.preference_id,
       userId: data.user_id,
-      // Workout notifications
       workoutInvitations: data.workout_invitations ?? true,
       workoutResponses: data.workout_responses ?? true,
       workoutBails: data.workout_bails ?? true,
       workoutReminders: data.workout_reminders ?? true,
-      // Social notifications
       friendAtGym: data.friend_at_gym ?? true,
       friendAtCrag: data.friend_at_crag ?? true,
       groupMessages: data.group_messages ?? true,
-      // Belayer/climbing partner notifications
       belayerRequests: data.belayer_requests ?? true,
       belayerResponses: data.belayer_responses ?? true,
       matchingPartners: data.matching_partners ?? true,
       groupBelayerAlerts: data.group_belayer_alerts ?? true,
-      // Feed notifications
       feedResponses: data.feed_responses ?? true,
       feedMentions: data.feed_mentions ?? true,
-      // Trip planning
       friendTripAnnouncements: data.friend_trip_announcements ?? true,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
+    await cacheSet(`${CACHE_PREFIX}notif_prefs:${userId}`, prefs);
+    return prefs;
   },
 
   async updateNotificationPreferences(
@@ -3631,27 +3911,40 @@ export const calendarBusyBlocksApi = {
 export const postCommentsApi = {
   /** Fetch non-deleted comments for a post, oldest-first, joined with author name/avatar. */
   async getComments(postId: string): Promise<import('../types').PostComment[]> {
-    const { data, error } = await (supabase as any)
-      .from('post_comments')
-      .select(`
-        id, post_id, author_user_id, content, created_at, updated_at,
-        users!post_comments_author_user_id_fkey (name, avatar)
-      `)
-      .eq('post_id', postId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true });
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any)
+          .from('post_comments')
+          .select(`
+            id, post_id, author_user_id, content, created_at, updated_at,
+            users!post_comments_author_user_id_fkey (name, avatar)
+          `)
+          .eq('post_id', postId)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: true })
+          .then((r: any) => r)
+      );
 
-    if (error) throw error;
-    return (data ?? []).map((row: any) => ({
-      id: row.id,
-      postId: row.post_id,
-      authorUserId: row.author_user_id,
-      authorName: row.users?.name ?? undefined,
-      authorAvatar: row.users?.avatar ?? undefined,
-      content: row.content,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+      if (error) throw error;
+      const comments = (data ?? []).map((row: any) => ({
+        id: row.id,
+        postId: row.post_id,
+        authorUserId: row.author_user_id,
+        authorName: row.users?.name ?? undefined,
+        authorAvatar: row.users?.avatar ?? undefined,
+        content: row.content,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+      await cacheSet(`${CACHE_PREFIX}post_comments:${postId}`, comments);
+      return comments;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<import('../types').PostComment[]>(`${CACHE_PREFIX}post_comments:${postId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
   },
 
   /** Add a comment. Returns the created comment with author info. */
@@ -3660,31 +3953,281 @@ export const postCommentsApi = {
     userId: string,
     content: string
   ): Promise<import('../types').PostComment> {
-    const { data, error } = await (supabase as any)
-      .from('post_comments')
-      .insert({ post_id: postId, author_user_id: userId, content })
-      .select(`
-        id, post_id, author_user_id, content, created_at, updated_at,
-        users!post_comments_author_user_id_fkey (name, avatar)
-      `)
-      .single();
+    const clientId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    try {
+      const { data, error } = await (supabase as any)
+        .from('post_comments')
+        .insert({ post_id: postId, author_user_id: userId, content })
+        .select(`
+          id, post_id, author_user_id, content, created_at, updated_at,
+          users!post_comments_author_user_id_fkey (name, avatar)
+        `)
+        .single();
 
+      if (error) throw error;
+      return {
+        id: data.id,
+        postId: data.post_id,
+        authorUserId: data.author_user_id,
+        authorName: data.users?.name ?? undefined,
+        authorAvatar: data.users?.avatar ?? undefined,
+        content: data.content,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+      };
+    } catch (e) {
+      if (isNetworkError(e)) {
+        await offlineQueue.add({ type: 'create_post_comment', payload: { postId, userId, text: content, clientId } });
+        return {
+          id: clientId,
+          postId,
+          authorUserId: userId,
+          authorName: undefined,
+          authorAvatar: undefined,
+          content,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      throw e;
+    }
+  },
+};
+
+// ─── Direct Messages API ──────────────────────────────────────────────────────
+
+export const directMessagesApi = {
+  /** Normalize pair so user_a < user_b (UUID lexicographic). */
+  _normalize(userIdA: string, userIdB: string): { userA: string; userB: string } {
+    return userIdA < userIdB
+      ? { userA: userIdA, userB: userIdB }
+      : { userA: userIdB, userB: userIdA };
+  },
+
+  /** Get existing conversation or create a new one. Idempotent. */
+  async getOrCreateConversation(
+    userId: string,
+    otherUserId: string
+  ): Promise<{ id: string }> {
+    const { userA, userB } = this._normalize(userId, otherUserId);
+    // Try to find existing
+    const { data: existing, error: fetchError } = await (supabase as any)
+      .from('dm_conversations')
+      .select('id')
+      .eq('user_a', userA)
+      .eq('user_b', userB)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (existing) return { id: existing.id };
+    // Create new
+    const { data, error } = await (supabase as any)
+      .from('dm_conversations')
+      .insert([{ user_a: userA, user_b: userB }])
+      .select('id')
+      .single();
     if (error) throw error;
-    return {
-      id: data.id,
-      postId: data.post_id,
-      authorUserId: data.author_user_id,
-      authorName: data.users?.name ?? undefined,
-      authorAvatar: data.users?.avatar ?? undefined,
-      content: data.content,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    };
+    return { id: data.id };
+  },
+
+  /** List all conversations for a user with last-message preview and unread count. */
+  async listConversations(userId: string): Promise<any[]> {
+    try {
+      const { data, error }: any = await withTimeout(
+        (supabase as any)
+          .from('dm_conversations')
+          .select(`
+            id, user_a, user_b, updated_at,
+            dm_messages (
+              id, message_text, message_type, sender_user_id, created_at, read_by
+            )
+          `)
+          .or(`user_a.eq.${userId},user_b.eq.${userId}`)
+          .order('updated_at', { ascending: false })
+          .then((r: any) => r)
+      );
+      if (error) throw error;
+      const convos = (data || []).map((convo: any) => {
+        const otherUserId = convo.user_a === userId ? convo.user_b : convo.user_a;
+        const messages: any[] = convo.dm_messages || [];
+        const sorted = [...messages].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        const lastMsg = sorted[0];
+        const unreadCount = sorted.filter(
+          (m) => m.sender_user_id !== userId && !(m.read_by ?? []).includes(userId)
+        ).length;
+        return {
+          id: convo.id,
+          otherUserId,
+          lastMessage: lastMsg?.message_text,
+          lastMessageAt: lastMsg?.created_at ?? convo.updated_at,
+          unreadCount,
+        };
+      });
+      await cacheSet(`${CACHE_PREFIX}dm_conversations:${userId}`, convos);
+      return convos;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const cached = await cacheGet<any[]>(`${CACHE_PREFIX}dm_conversations:${userId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
+  },
+
+  async getMessages(
+    conversationId: string,
+    limit: number = 50,
+    before?: string
+  ): Promise<any[]> {
+    try {
+      let q = (supabase as any)
+        .from('dm_messages')
+        .select(`
+          id, conversation_id, sender_user_id, message_text, message_type,
+          metadata, created_at, edited_at, deleted_at, read_by,
+          users!dm_messages_sender_user_id_fkey (id, name, avatar)
+        `)
+        .eq('conversation_id', conversationId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (before) q = q.lt('created_at', before);
+      const { data, error }: any = await withTimeout(q.then((r: any) => r));
+      if (error) throw error;
+      const messages = ((data || []) as any[])
+        .reverse()
+        .map((m: any) => ({
+          messageId: m.id,
+          chatId: m.conversation_id,
+          senderUserId: m.sender_user_id,
+          senderName: m.users?.name,
+          senderAvatar: m.users?.avatar,
+          messageText: m.message_text,
+          messageType: m.message_type as 'text' | 'image' | 'system',
+          metadata: m.metadata,
+          createdAt: m.created_at,
+          editedAt: m.edited_at,
+          deletedAt: m.deleted_at,
+          readBy: m.read_by ?? [],
+        }));
+      if (!before) await cacheSet(`${CACHE_PREFIX}dm_messages:${conversationId}`, messages);
+      return messages;
+    } catch (e) {
+      if (isNetworkError(e) && !before) {
+        const cached = await cacheGet<any[]>(`${CACHE_PREFIX}dm_messages:${conversationId}`);
+        if (cached) return cached.data;
+      }
+      throw e;
+    }
+  },
+
+  async sendMessage(
+    conversationId: string,
+    senderUserId: string,
+    text: string,
+    type: 'text' | 'image' | 'system' = 'text',
+    metadata?: any
+  ): Promise<any> {
+    const clientId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    try {
+      const { data, error } = await (supabase as any)
+        .from('dm_messages')
+        .insert([{
+          conversation_id: conversationId,
+          sender_user_id: senderUserId,
+          message_text: text,
+          message_type: type,
+          metadata: metadata ?? null,
+        }])
+        .select(`
+          id, conversation_id, sender_user_id, message_text, message_type,
+          metadata, created_at, read_by,
+          users!dm_messages_sender_user_id_fkey (id, name, avatar)
+        `)
+        .single();
+      if (error) throw error;
+      // Bump conversation updated_at
+      await (supabase as any)
+        .from('dm_conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+      return {
+        messageId: data.id,
+        chatId: data.conversation_id,
+        senderUserId: data.sender_user_id,
+        senderName: data.users?.name,
+        senderAvatar: data.users?.avatar,
+        messageText: data.message_text,
+        messageType: data.message_type,
+        metadata: data.metadata,
+        createdAt: data.created_at,
+        readBy: data.read_by ?? [],
+      };
+    } catch (e) {
+      if (isNetworkError(e)) {
+        // conversationId here is a DM conversation id; the queue will re-deliver to the right thread
+        await offlineQueue.add({ type: 'send_direct_message', payload: { senderId: senderUserId, recipientId: conversationId, text, clientId } });
+        return {
+          messageId: clientId,
+          chatId: conversationId,
+          senderUserId,
+          senderName: undefined,
+          senderAvatar: undefined,
+          messageText: text,
+          messageType: type,
+          metadata: metadata ?? null,
+          createdAt: new Date().toISOString(),
+          readBy: [],
+        };
+      }
+      throw e;
+    }
+  },
+
+  async markRead(conversationId: string, userId: string): Promise<void> {
+    const { data: unread, error: fetchErr } = await (supabase as any)
+      .from('dm_messages')
+      .select('id, read_by')
+      .eq('conversation_id', conversationId)
+      .neq('sender_user_id', userId)
+      .is('deleted_at', null);
+    if (fetchErr) throw fetchErr;
+    const toUpdate = (unread || []).filter(
+      (m: any) => !(m.read_by ?? []).includes(userId)
+    );
+    if (toUpdate.length === 0) return;
+    await Promise.all(
+      toUpdate.map((m: any) =>
+        (supabase as any)
+          .from('dm_messages')
+          .update({ read_by: [...(m.read_by ?? []), userId] })
+          .eq('id', m.id)
+      )
+    );
+  },
+
+  /** Subscribe to new messages in a conversation. Returns the realtime channel. */
+  subscribe(conversationId: string, onMessage: (msg: any) => void): any {
+    return supabase
+      .channel(`dm:${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'dm_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload: any) => onMessage(payload.new)
+      )
+      .subscribe();
   },
 };
 
 /** Runner for offline queue processing. Pass to offlineQueue.processQueue(runner). */
 export const offlineQueueRunner: OfflineQueueRunner = {
+  // ── Existing required methods ───────────────────────────────────────────────
   areaVisit: (userId, areaId) => userAreaVisitsApi.recordVisit(userId, areaId).then(() => {}),
   leaveArea: (userId, areaId) => userAreaVisitsApi.leaveArea(userId, areaId),
   areaFeedPost: (post) => areaFeedApi.createFeedPost(post),
@@ -3697,4 +4240,72 @@ export const offlineQueueRunner: OfflineQueueRunner = {
   tripInvitationRespond: (invitationId, status) => tripInvitationsApi.respond(invitationId, status),
   gymCheckIn: (userId, gymId, location) => presenceApi.checkIn(userId, gymId, location).then(() => {}),
   gymCheckOut: (userId, gymId) => presenceApi.checkOut(userId, gymId),
+
+  // ── New optional methods ────────────────────────────────────────────────────
+
+  /**
+   * Replay a queued direct message.
+   * The queue stores recipientId as the conversationId (since that's what sendMessage uses for DMs).
+   * We call getOrCreateConversation first to ensure the thread exists, then send.
+   */
+  sendDirectMessage: async (senderId, recipientId, text, _clientId) => {
+    const { id: conversationId } = await directMessagesApi.getOrCreateConversation(senderId, recipientId);
+    await directMessagesApi.sendMessage(conversationId, senderId, text);
+  },
+
+  /** Replay a queued group chat message. groupId here is the chatId (chat_messages.chat_id). */
+  sendGroupMessage: async (groupId, senderId, text, _clientId) => {
+    await chatApi.sendMessage(groupId, senderId, text);
+  },
+
+  /** Replay a queued post comment. */
+  createPostComment: async (postId, userId, text, _clientId) => {
+    await postCommentsApi.addComment(postId, userId, text);
+  },
+
+  /** Replay a queued profile update. */
+  updateProfile: async (userId, updates) => {
+    await userApi.updateUser(userId, updates as Partial<User>);
+  },
+
+  /** Replay a queued schedule creation. */
+  scheduleCreate: async (payload) => {
+    // payload matches the dbData shape; reconstruct a minimal CreateScheduleForm-like call via raw insert
+    const { data, error } = await (supabase as any)
+      .from('schedules')
+      .insert([payload])
+      .select()
+      .single();
+    if (error) throw error;
+  },
+
+  /** Replay a queued schedule update. */
+  scheduleUpdate: async (scheduleId, updates) => {
+    await scheduleApi.updateSchedule(scheduleId, updates as Partial<Schedule>);
+  },
+
+  /** Replay a queued schedule deletion. */
+  scheduleDelete: async (scheduleId) => {
+    await scheduleApi.deleteSchedule(scheduleId);
+  },
+
+  /** Replay a queued belayer request creation. payload is the raw feed post object. */
+  belayerRequestCreate: async (payload) => {
+    await areaFeedApi.createFeedPost(payload as any);
+  },
+
+  /** Replay a queued belayer request response. */
+  belayerRequestRespond: async (requestId, status) => {
+    await areaFeedApi.respondToBelayerRequest(requestId, status);
+  },
+
+  /** Replay a queued area follow. */
+  followArea: async (userId, areaId) => {
+    await userAreaFollowsApi.follow(userId, areaId);
+  },
+
+  /** Replay a queued area unfollow. */
+  unfollowArea: async (userId, areaId) => {
+    await userAreaFollowsApi.unfollow(userId, areaId);
+  },
 };
