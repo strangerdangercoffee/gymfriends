@@ -7,7 +7,9 @@ import {
   TouchableOpacity,
   Alert,
   Switch,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
@@ -19,7 +21,7 @@ import Input from '../components/Input';
 import LocationPermissionModal from '../components/LocationPermissionModal';
 import ClimbingProfileModal from '../components/ClimbingProfileModal';
 import { ClimbingProfile, BelayCertification, NotificationPreferences, UserAreaPlan, TripInvitation } from '../types';
-import { climbingProfileApi, notificationPreferencesApi, tripInvitationsApi } from '../services/api';
+import { climbingProfileApi, notificationPreferencesApi, tripInvitationsApi, avatarsApi } from '../services/api';
 import { invitationService } from '../services/invitations';
 import { colors } from '../theme/colors';
 
@@ -37,6 +39,9 @@ const ProfileScreen: React.FC = () => {
   const { climbingAreas } = useApp();
   const { isOffline } = useNetwork();
   const [isEditing, setIsEditing] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(user?.phone || '');
@@ -223,6 +228,33 @@ const ProfileScreen: React.FC = () => {
   };
 
 
+  const handlePickAvatar = async () => {
+    if (!user?.id) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please grant camera roll permissions.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setUploadingAvatar(true);
+      try {
+        const url = await avatarsApi.uploadUserAvatar(user.id, result.assets[0].uri);
+        setAvatarUri(url);
+        await updateProfile({ avatar: url });
+      } catch {
+        Alert.alert('Error', 'Failed to upload photo');
+      } finally {
+        setUploadingAvatar(false);
+      }
+    }
+  };
+
   const renderProfileSection = () => (
     <Card style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -278,11 +310,20 @@ const ProfileScreen: React.FC = () => {
         </View>
       ) : (
         <View style={styles.profileInfo}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.name?.charAt(0).toUpperCase() || 'U'}
-            </Text>
-          </View>
+          <TouchableOpacity onPress={handlePickAvatar} disabled={uploadingAvatar} style={styles.avatarWrap}>
+            {avatarUri || user?.avatar ? (
+              <Image source={{ uri: avatarUri ?? user?.avatar ?? '' }} style={styles.avatarImg} />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {user?.name?.charAt(0).toUpperCase() || 'U'}
+                </Text>
+              </View>
+            )}
+            <View style={styles.avatarEditBadge}>
+              <Ionicons name={uploadingAvatar ? 'hourglass-outline' : 'camera-outline'} size={12} color={colors.background} />
+            </View>
+          </TouchableOpacity>
           <View style={styles.userInfo}>
             <Text style={styles.userName}>{user?.name || 'Unknown User'}</Text>
             <Text style={styles.userEmail}>{user?.email || 'No email'}</Text>
@@ -567,8 +608,20 @@ const ProfileScreen: React.FC = () => {
 
   const renderNotificationSection = () => (
     <Card style={styles.section}>
-      <Text style={styles.sectionTitle}>Notifications</Text>
-      
+      <TouchableOpacity
+        style={styles.sectionHeader}
+        onPress={() => setShowNotifications((v) => !v)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.sectionTitle}>Notifications</Text>
+        <Ionicons
+          name={showNotifications ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color={colors.textMuted}
+        />
+      </TouchableOpacity>
+
+      {showNotifications && <>
       <View style={styles.settingItem}>
         <View style={styles.settingInfo}>
           <Text style={styles.settingTitle}>Workout Invitations</Text>
@@ -745,6 +798,7 @@ const ProfileScreen: React.FC = () => {
         style={styles.saveButton}
         disabled={loadingPreferences}
       />
+      </>}
     </Card>
   );
 
@@ -983,6 +1037,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  avatarWrap: {
+    width: 64,
+    height: 64,
+    marginRight: 16,
+    position: 'relative',
+  },
   avatar: {
     width: 64,
     height: 64,
@@ -990,7 +1050,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+  },
+  avatarImg: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: {
     fontSize: 24,
