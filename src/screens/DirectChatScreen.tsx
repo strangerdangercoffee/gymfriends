@@ -132,6 +132,37 @@ const DirectChatScreen: React.FC = () => {
     }
   };
 
+  const uploadAndSendMedia = async (uri: string, type: 'image' | 'video') => {
+    if (!user?.id) return;
+    setSending(true);
+    try {
+      const ext = uri.split('.').pop() ?? (type === 'video' ? 'mp4' : 'jpg');
+      const path = `dm/${conversationId}/${Date.now()}.${ext}`;
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const bucket = type === 'video' ? 'chat-videos' : 'chat-images';
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(path, blob, { contentType: `${type}/${ext}` });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
+      const mediaUrl = urlData.publicUrl;
+      const msg = await directMessagesApi.sendMessage(
+        conversationId,
+        user.id,
+        type === 'video' ? '🎥 Video' : '📷 Image',
+        'image',
+        type === 'video' ? { videoUrl: mediaUrl } : { imageUrl: mediaUrl }
+      );
+      setMessages((prev) => [...prev, msg]);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch {
+      Alert.alert('Error', `Failed to upload ${type}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
   const handlePickImage = async () => {
     if (!user?.id) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -140,39 +171,33 @@ const DirectChatScreen: React.FC = () => {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: true,
       quality: 0.8,
     });
     if (!result.canceled && result.assets[0]) {
-      setSending(true);
-      try {
-        // Upload via supabase storage
-        const uri = result.assets[0].uri;
-        const ext = uri.split('.').pop() ?? 'jpg';
-        const path = `dm/${conversationId}/${Date.now()}.${ext}`;
-        const response = await fetch(uri);
-        const blob = await response.blob();
-        const { error: uploadError } = await supabase.storage
-          .from('chat-images')
-          .upload(path, blob, { contentType: `image/${ext}` });
-        if (uploadError) throw uploadError;
-        const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(path);
-        const imageUrl = urlData.publicUrl;
-        const msg = await directMessagesApi.sendMessage(
-          conversationId,
-          user.id,
-          '📷 Image',
-          'image',
-          { imageUrl }
-        );
-        setMessages((prev) => [...prev, msg]);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-      } catch {
-        Alert.alert('Error', 'Failed to upload image');
-      } finally {
-        setSending(false);
-      }
+      const asset = result.assets[0];
+      const type = asset.type === 'video' ? 'video' : 'image';
+      await uploadAndSendMedia(asset.uri, type);
+    }
+  };
+
+  const handlePickCamera = async () => {
+    if (!user?.id) return;
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please grant camera permissions.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      const type = asset.type === 'video' ? 'video' : 'image';
+      await uploadAndSendMedia(asset.uri, type);
     }
   };
 
@@ -260,6 +285,9 @@ const DirectChatScreen: React.FC = () => {
       <View style={styles.inputRow}>
         <TouchableOpacity style={styles.mediaBtn} onPress={handlePickImage}>
           <Ionicons name="image-outline" size={24} color={colors.secondary} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.mediaBtn} onPress={handlePickCamera}>
+          <Ionicons name="camera-outline" size={24} color={colors.secondary} />
         </TouchableOpacity>
         <TextInput
           style={styles.input}

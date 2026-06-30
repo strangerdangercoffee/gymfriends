@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
-import { tripInvitationsApi } from '../services/api';
+import { tripInvitationsApi, groupsApi } from '../services/api';
 import { notificationService } from '../services/notifications';
 import { UserAreaPlan } from '../types';
 import Button from './Button';
@@ -39,6 +39,8 @@ const InviteFriendsToTripModal: React.FC<InviteFriendsToTripModalProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [existingInvitees, setExistingInvitees] = useState<string[]>([]);
+  const [userGroups, setUserGroups] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (visible && trip?.id) {
@@ -46,7 +48,21 @@ const InviteFriendsToTripModal: React.FC<InviteFriendsToTripModalProps> = ({
         setExistingInvitees(invitations.map((i) => i.inviteeUserId));
       });
     }
-  }, [visible, trip?.id]);
+    if (visible && user?.id) {
+      groupsApi.getUserGroups(user.id).then((groups) => {
+        setUserGroups(groups.map((g: any) => ({ id: g.groups?.group_id ?? g.group_id, name: g.groups?.name ?? g.name })));
+      }).catch(() => {});
+    }
+  }, [visible, trip?.id, user?.id]);
+
+  const toggleGroup = (groupId: string) => {
+    setSelectedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
 
   const toggleFriend = (friendId: string) => {
     setSelectedIds((prev) => {
@@ -58,11 +74,12 @@ const InviteFriendsToTripModal: React.FC<InviteFriendsToTripModalProps> = ({
   };
 
   const handleInvite = async () => {
-    if (!user?.id || selectedIds.size === 0) return;
+    if (!user?.id || (selectedIds.size === 0 && selectedGroupIds.size === 0)) return;
     setSaving(true);
     try {
       const inviterName = user.name || 'A friend';
       const dateRange = `${trip.startDate} – ${trip.endDate}`;
+
       for (const inviteeId of selectedIds) {
         const inv = await tripInvitationsApi.create(
           trip.id,
@@ -86,9 +103,28 @@ const InviteFriendsToTripModal: React.FC<InviteFriendsToTripModalProps> = ({
           console.warn('Trip invite push failed', e);
         }
       }
+
+      for (const groupId of selectedGroupIds) {
+        try {
+          const members = await groupsApi.getGroupMembers(groupId);
+          for (const m of members) {
+            const memberId = m.user_id ?? m.userId;
+            if (!memberId || memberId === user.id || existingInvitees.includes(memberId)) continue;
+            try {
+              await tripInvitationsApi.create(trip.id, user.id, memberId, comment.trim() || undefined);
+            } catch (e: any) {
+              if (e?.code !== '23505') console.warn('Group member invite failed', e);
+            }
+          }
+        } catch {
+          console.warn('Failed to load members for group', groupId);
+        }
+      }
+
       Alert.alert('Success', 'Invitations sent');
       setComment('');
       setSelectedIds(new Set());
+      setSelectedGroupIds(new Set());
       onSuccess?.();
       onClose();
     } catch {
@@ -133,12 +169,29 @@ const InviteFriendsToTripModal: React.FC<InviteFriendsToTripModalProps> = ({
               <Text style={styles.hint}>All friends already invited or no friends</Text>
             )}
           </ScrollView>
+          {userGroups.length > 0 && (
+            <>
+              <Text style={styles.label}>Invite groups</Text>
+              <ScrollView style={styles.friendList} nestedScrollEnabled>
+                {userGroups.map((group) => (
+                  <TouchableOpacity
+                    key={group.id}
+                    style={[styles.friendRow, selectedGroupIds.has(group.id) && styles.friendRowSelected]}
+                    onPress={() => toggleGroup(group.id)}
+                  >
+                    <Text style={styles.friendName}>{group.name}</Text>
+                    {selectedGroupIds.has(group.id) && <Text style={styles.check}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </>
+          )}
           <View style={styles.actions}>
             <Button title="Cancel" onPress={onClose} style={styles.cancelBtn} />
             <Button
               title={saving ? 'Sending...' : 'Send invites'}
               onPress={handleInvite}
-              disabled={saving || selectedIds.size === 0}
+              disabled={saving || (selectedIds.size === 0 && selectedGroupIds.size === 0)}
             />
           </View>
         </View>

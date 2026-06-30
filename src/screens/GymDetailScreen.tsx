@@ -119,41 +119,41 @@ const GymDetailScreen: React.FC = () => {
             {/* Actions */}
             <View style={styles.actionBar}>
               <TouchableOpacity
-                style={[styles.actionButton, isFollowing && styles.actionButtonActive]}
+                style={[styles.actionButton, isFollowing ? styles.actionButtonPrimary : null]}
                 onPress={handleFollowToggle}
               >
                 <Ionicons
                   name={isFollowing ? 'heart' : 'heart-outline'}
                   size={18}
-                  color={isFollowing ? colors.primary : colors.textSecondary}
+                  color={isFollowing ? colors.background : colors.textSecondary}
                 />
-                <Text style={[styles.actionButtonText, isFollowing && styles.actionButtonTextActive]}>
+                <Text style={[styles.actionButtonText, isFollowing && styles.actionButtonTextOnPrimary]}>
                   {isOffline
-                    ? (isFollowing ? 'Following (syncing)' : 'Follow (will sync)')
+                    ? (isFollowing ? 'Following' : 'Follow')
                     : (isFollowing ? 'Following' : 'Follow')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.actionButton, isCheckedIn && styles.actionButtonActive]}
+                style={[styles.actionButton, isCheckedIn ? styles.actionButtonPrimary : null]}
                 onPress={handleCheckInOut}
               >
                 <Ionicons
                   name={isCheckedIn ? 'checkmark-circle' : 'checkmark-circle-outline'}
                   size={18}
-                  color={isCheckedIn ? colors.primary : colors.textSecondary}
+                  color={isCheckedIn ? colors.background : colors.textSecondary}
                 />
-                <Text style={[styles.actionButtonText, isCheckedIn && styles.actionButtonTextActive]}>
+                <Text style={[styles.actionButtonText, isCheckedIn && styles.actionButtonTextOnPrimary]}>
                   {isOffline
-                    ? (isCheckedIn ? 'Checked In (syncing)' : 'Check In (will sync)')
+                    ? (isCheckedIn ? 'Checked In' : 'Check In')
                     : (isCheckedIn ? 'Checked In' : 'Check In')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.actionButton}
+                style={styles.actionButtonSecondary}
                 onPress={() => setShowBelayerModal(true)}
               >
-                <Ionicons name="add-circle-outline" size={18} color={colors.textSecondary} />
-                <Text style={styles.actionButtonText}>New Request</Text>
+                <Ionicons name="add-circle-outline" size={18} color={colors.textMuted} />
+                <Text style={styles.actionButtonTextSecondary}>New Request</Text>
               </TouchableOpacity>
             </View>
 
@@ -212,7 +212,7 @@ const GymDetailScreen: React.FC = () => {
             )}
 
             <View style={styles.feedSectionTitle}>
-              <Text style={styles.sectionTitle}>Belay request board</Text>
+              <Text style={styles.feedSectionLabel}>BELAY REQUEST BOARD</Text>
             </View>
           </>
         }
@@ -275,12 +275,25 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surfaceElevated,
   },
-  actionButtonActive: {
+  actionButtonPrimary: {
+    backgroundColor: colors.primary,
     borderColor: colors.primary,
-    backgroundColor: colors.primaryMuted,
+  },
+  actionButtonSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: colors.background,
   },
   actionButtonText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
-  actionButtonTextActive: { color: colors.primary },
+  actionButtonTextOnPrimary: { color: colors.background },
+  actionButtonTextSecondary: { fontSize: 12, color: colors.textMuted, fontWeight: '500' },
   section: {
     padding: 16,
     backgroundColor: colors.surface,
@@ -290,8 +303,19 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 10 },
   feedSectionTitle: {
     padding: 16,
-    paddingBottom: 0,
-    backgroundColor: colors.surface,
+    paddingBottom: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  feedSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textMuted,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
   friendRow: {
     flexDirection: 'row',
