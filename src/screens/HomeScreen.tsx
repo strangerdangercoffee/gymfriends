@@ -8,7 +8,9 @@ import {
   RefreshControl,
   Modal,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -134,6 +136,10 @@ const HomeScreen: React.FC = () => {
   } | null>(null);
   const [goingOpenToJoin, setGoingOpenToJoin] = useState(true);
   const [goingSubmitting, setGoingSubmitting] = useState(false);
+  const [goingSearchText, setGoingSearchText] = useState('');
+  const [goingArrivalType, setGoingArrivalType] = useState<'now' | 'soon'>('now');
+  const [goingRouteNote, setGoingRouteNote] = useState('');
+  const [unreadByPlace, setUnreadByPlace] = useState<Record<string, number>>({});
 
   const [weatherByAreaId, setWeatherByAreaId] = useState<Record<string, WeatherData>>({});
   const [tripInvitations, setTripInvitations] = useState<TripInviteWithPlan[]>([]);
@@ -226,6 +232,39 @@ const HomeScreen: React.FC = () => {
     loadPosts();
   }, [loadTrips, loadPosts]);
 
+  // ── Unread badges per place ──
+  const UNREAD_KEY = 'homescreen_last_seen_at';
+  useEffect(() => {
+    if (recentPosts.length === 0) return;
+    AsyncStorage.getItem(UNREAD_KEY).then((raw) => {
+      const lastSeen: Record<string, string> = raw ? JSON.parse(raw) : {};
+      const counts: Record<string, number> = {};
+      for (const post of recentPosts) {
+        const placeId = post.gymId ?? post.areaId;
+        if (!placeId) continue;
+        const seenAt = lastSeen[placeId];
+        if (!seenAt || post.createdAt > seenAt) {
+          counts[placeId] = (counts[placeId] ?? 0) + 1;
+        }
+      }
+      setUnreadByPlace(counts);
+    }).catch(() => {});
+  }, [recentPosts]);
+
+  const markPlaceSeen = useCallback((placeId: string) => {
+    setUnreadByPlace((prev) => {
+      if (!prev[placeId]) return prev;
+      const next = { ...prev };
+      delete next[placeId];
+      return next;
+    });
+    AsyncStorage.getItem(UNREAD_KEY).then((raw) => {
+      const lastSeen: Record<string, string> = raw ? JSON.parse(raw) : {};
+      lastSeen[placeId] = new Date().toISOString();
+      return AsyncStorage.setItem(UNREAD_KEY, JSON.stringify(lastSeen));
+    }).catch(() => {});
+  }, []);
+
   const onRefresh = useCallback(async () => {
     if (isOffline) {
       // Can't fetch fresh data while offline — keep cached content, skip spinner
@@ -293,22 +332,25 @@ const HomeScreen: React.FC = () => {
     }
   }, [goingLocation, user?.id, checkIn, checkInArea]);
 
-  // ── Today's scheduled workouts ──
+  // ── Upcoming scheduled workouts (72-hour window) ──
   const todaySchedules = useMemo(() => {
     const now = new Date();
-    const todayDate = now.toISOString().slice(0, 10);
-    const todayDay = now.getDay(); // 0=Sun
+    const windowEnd = new Date(now.getTime() + 72 * 3600000);
 
     return schedules.filter((s) => {
-      const startDate = new Date(s.startTime).toISOString().slice(0, 10);
+      const startTime = new Date(s.startTime);
       if (!s.isRecurring) {
-        return startDate === todayDate;
+        return startTime >= now && startTime <= windowEnd;
       }
       if (s.recurringPattern === 'daily') return true;
       if (s.recurringPattern === 'weekly') {
-        return new Date(s.startTime).getDay() === todayDay;
+        for (let d = 0; d < 4; d++) {
+          const candidate = new Date(now.getTime() + d * 86400000);
+          if (candidate.getDay() === startTime.getDay()) return true;
+        }
+        return false;
       }
-      return startDate === todayDate;
+      return startTime >= now && startTime <= windowEnd;
     });
   }, [schedules]);
 
@@ -342,12 +384,11 @@ const HomeScreen: React.FC = () => {
           </Text>
         </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerIconBtn} accessibilityLabel="Notifications">
-            <Ionicons name="notifications-outline" size={21} color={colors.primary} />
+          <TouchableOpacity onPress={() => (navigation as any).navigate('Profile')}>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarInitials}>{initials(user?.name ?? 'Me')}</Text>
+            </View>
           </TouchableOpacity>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarInitials}>{initials(user?.name ?? 'Me')}</Text>
-          </View>
         </View>
       </View>
 
@@ -390,16 +431,23 @@ const HomeScreen: React.FC = () => {
 
         {/* ── Who's out today ── */}
         <View style={styles.sectionSpaced}>
-          <View style={styles.sectionHeader}>
+          <TouchableOpacity
+            style={styles.sectionHeader}
+            activeOpacity={0.7}
+            onPress={() => (navigation as any).navigate('Find', { screen: 'FindMain' })}
+          >
             <Text style={styles.sectionTitle}>Who's out today</Text>
-            {friendsOut.length > 0 && (
+            {friendsOut.length > 0 ? (
               <Text style={styles.sectionMeta}>
                 {friendsOut.length} friend{friendsOut.length !== 1 ? 's' : ''}
               </Text>
+            ) : (
+              <Ionicons name="chevron-forward" size={14} color={colors.textFaded} />
             )}
-          </View>
+          </TouchableOpacity>
 
           {friendsOut.length === 0 ? (
+
             <View style={styles.emptyRow}>
               <Text style={styles.emptyText}>No friends are out climbing right now</Text>
             </View>
@@ -495,11 +543,15 @@ const HomeScreen: React.FC = () => {
               const friendsHere = friends.filter((f) =>
                 gym.currentUsers?.includes(f.id)
               );
+              const gymUnread = unreadByPlace[gym.id] ?? 0;
               return (
                 <TouchableOpacity
                   key={gym.id}
                   style={[styles.placeCard, styles.placeCardGym]}
-                  onPress={() => (navigation as any).navigate('Find', { screen: 'GymDetail', params: { gymId: gym.id } })}
+                  onPress={() => {
+                    markPlaceSeen(gym.id);
+                    (navigation as any).navigate('Find', { screen: 'GymDetail', params: { gymId: gym.id } });
+                  }}
                   activeOpacity={0.75}
                 >
                   <View style={styles.placeCardTop}>
@@ -510,10 +562,17 @@ const HomeScreen: React.FC = () => {
                       </View>
                       <Text style={styles.placeName}>{gym.name}</Text>
                     </View>
-                    <View style={styles.placeCountBadgeGym}>
-                      <Text style={styles.placeCountTextGym}>
-                        {gym.currentUsers?.length ?? 0} here now
-                      </Text>
+                    <View style={styles.placeCardBadgesRow}>
+                      {gymUnread > 0 && (
+                        <View style={styles.unreadBadge}>
+                          <Text style={styles.unreadBadgeText}>{gymUnread}</Text>
+                        </View>
+                      )}
+                      <View style={styles.placeCountBadgeGym}>
+                        <Text style={styles.placeCountTextGym}>
+                          {gym.currentUsers?.length ?? 0} here now
+                        </Text>
+                      </View>
                     </View>
                   </View>
                   {friendsHere.length > 0 && (
@@ -544,11 +603,15 @@ const HomeScreen: React.FC = () => {
             {followedAreas.map((area) => {
               const wx = weatherByAreaId[area.id];
               const plansHere = friendsPlans.filter((p) => p.plan.areaId === area.id).length;
+              const areaUnread = unreadByPlace[area.id] ?? 0;
               return (
                 <TouchableOpacity
                   key={area.id}
                   style={[styles.placeCard, styles.placeCardCrag]}
-                  onPress={() => (navigation as any).navigate('Find', { screen: 'AreaDetail', params: { areaId: area.id } })}
+                  onPress={() => {
+                    markPlaceSeen(area.id);
+                    (navigation as any).navigate('Find', { screen: 'AreaDetail', params: { areaId: area.id } });
+                  }}
                   activeOpacity={0.75}
                 >
                   <View style={styles.placeCardTop}>
@@ -561,14 +624,21 @@ const HomeScreen: React.FC = () => {
                       </View>
                       <Text style={styles.placeName}>{area.name}</Text>
                     </View>
-                    {wx ? (
-                      <View style={styles.weatherBlock}>
-                        <Text style={styles.weatherTemp}>{wx.temp}°</Text>
-                        <Text style={styles.weatherDesc}>{wx.description}</Text>
-                      </View>
-                    ) : (
-                      <ActivityIndicator size="small" color={colors.textMuted} />
-                    )}
+                    <View style={styles.placeCardBadgesRow}>
+                      {areaUnread > 0 && (
+                        <View style={styles.unreadBadge}>
+                          <Text style={styles.unreadBadgeText}>{areaUnread}</Text>
+                        </View>
+                      )}
+                      {wx ? (
+                        <View style={styles.weatherBlock}>
+                          <Text style={styles.weatherTemp}>{wx.temp}°</Text>
+                          <Text style={styles.weatherDesc}>{wx.description}</Text>
+                        </View>
+                      ) : (
+                        <ActivityIndicator size="small" color={colors.textMuted} />
+                      )}
+                    </View>
                   </View>
                   {wx && (
                     <View style={styles.weatherChips}>
@@ -604,48 +674,50 @@ const HomeScreen: React.FC = () => {
           </View>
         )}
 
-        {/* ── Today's workouts ── */}
-        {todaySchedules.length > 0 && (
-          <View style={styles.sectionSpaced}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Today's workouts</Text>
-              <TouchableOpacity onPress={() => (navigation as any).navigate('MySchedule')}>
-                <Text style={styles.sectionLink}>Full schedule</Text>
-              </TouchableOpacity>
-            </View>
-            {todaySchedules.map((s) => {
-              const gym = gyms.find((g) => g.id === s.gymId);
-              const start = new Date(s.startTime);
-              const end = new Date(s.endTime);
-              const timeLabel = `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-              const typeLabel = s.workoutType
-                ? s.workoutType.charAt(0).toUpperCase() + s.workoutType.slice(1)
-                : 'Workout';
-              return (
-                <TouchableOpacity
-                  key={s.id}
-                  style={styles.workoutCard}
-                  activeOpacity={0.75}
-                  onPress={() => (navigation as any).navigate('MySchedule')}
-                >
-                  <View style={styles.workoutCardLeft}>
-                    <View style={styles.workoutIconWrap}>
-                      <Ionicons name="barbell-outline" size={18} color={colors.primary} />
-                    </View>
-                    <View style={styles.workoutCardInfo}>
-                      <Text style={styles.workoutCardTitle}>
-                        {s.title ?? typeLabel}
-                        {gym ? ` · ${gym.name}` : ''}
-                      </Text>
-                      <Text style={styles.workoutCardTime}>{timeLabel}</Text>
-                    </View>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textFaded} />
-                </TouchableOpacity>
-              );
-            })}
+        {/* ── Upcoming workouts (72hr window) ── */}
+        <View style={styles.sectionSpaced}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Upcoming workouts</Text>
+            <TouchableOpacity onPress={() => (navigation as any).navigate('MySchedule')}>
+              <Text style={styles.sectionLink}>Full schedule</Text>
+            </TouchableOpacity>
           </View>
-        )}
+          {todaySchedules.length === 0 ? (
+            <View style={styles.emptyRow}>
+              <Text style={styles.emptyText}>No workouts in the next 3 days</Text>
+            </View>
+          ) : todaySchedules.map((s) => {
+            const gym = gyms.find((g) => g.id === s.gymId);
+            const start = new Date(s.startTime);
+            const end = new Date(s.endTime);
+            const timeLabel = `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+            const typeLabel = s.workoutType
+              ? s.workoutType.charAt(0).toUpperCase() + s.workoutType.slice(1)
+              : 'Workout';
+            return (
+              <TouchableOpacity
+                key={s.id}
+                style={styles.workoutCard}
+                activeOpacity={0.75}
+                onPress={() => (navigation as any).navigate('MySchedule')}
+              >
+                <View style={styles.workoutCardLeft}>
+                  <View style={styles.workoutIconWrap}>
+                    <Ionicons name="barbell-outline" size={18} color={colors.primary} />
+                  </View>
+                  <View style={styles.workoutCardInfo}>
+                    <Text style={styles.workoutCardTitle}>
+                      {s.title ?? typeLabel}
+                      {gym ? ` · ${gym.name}` : ''}
+                    </Text>
+                    <Text style={styles.workoutCardTime}>{timeLabel}</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textFaded} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         {/* ── Events & trips ── */}
         {(tripInvitations.length > 0 || friendsPlans.length > 0) && (
@@ -768,12 +840,22 @@ const HomeScreen: React.FC = () => {
         visible={showGoingModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowGoingModal(false)}
+        onRequestClose={() => {
+          setShowGoingModal(false);
+          setGoingSearchText('');
+          setGoingRouteNote('');
+          setGoingArrivalType('now');
+        }}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setShowGoingModal(false)}
+          onPress={() => {
+            setShowGoingModal(false);
+            setGoingSearchText('');
+            setGoingRouteNote('');
+            setGoingArrivalType('now');
+          }}
         >
           <View
             style={[styles.modalSheet, { paddingBottom: insets.bottom + 24 }]}
@@ -782,138 +864,114 @@ const HomeScreen: React.FC = () => {
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>Where are you heading?</Text>
 
-            {followedGyms.map((gym) => (
-              <TouchableOpacity
-                key={gym.id}
-                style={[
-                  styles.locationOption,
-                  goingLocation?.id === gym.id && styles.locationOptionActiveGym,
-                ]}
-                onPress={() =>
-                  setGoingLocation({ type: 'gym', id: gym.id, name: gym.name })
-                }
-              >
-                <Ionicons
-                  name="barbell-outline"
-                  size={18}
-                  color={
-                    goingLocation?.id === gym.id ? colors.background : colors.primary
-                  }
-                />
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={[
-                      styles.locationOptionText,
-                      goingLocation?.id === gym.id && styles.locationOptionTextActive,
-                    ]}
-                  >
-                    {gym.name}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.locationOptionSub,
-                      goingLocation?.id === gym.id && styles.locationOptionSubActive,
-                    ]}
-                  >
-                    Gym
-                  </Text>
-                </View>
-                {goingLocation?.id === gym.id && (
-                  <Ionicons name="checkmark-circle" size={20} color={colors.background} />
-                )}
-              </TouchableOpacity>
-            ))}
+            {/* Search bar */}
+            <View style={styles.goingSearchWrap}>
+              <Ionicons name="search-outline" size={16} color={colors.textMuted} />
+              <TextInput
+                style={styles.goingSearchInput}
+                value={goingSearchText}
+                onChangeText={setGoingSearchText}
+                placeholder="Search gyms & crags"
+                placeholderTextColor={colors.textMuted}
+                autoCorrect={false}
+              />
+            </View>
 
-            {followedAreas.map((area) => (
+            {/* Filtered location list */}
+            {[
+              ...followedGyms
+                .filter((g) => !goingSearchText || g.name.toLowerCase().includes(goingSearchText.toLowerCase()))
+                .map((gym) => ({ type: 'gym' as const, id: gym.id, name: gym.name })),
+              ...followedAreas
+                .filter((a) => !goingSearchText || a.name.toLowerCase().includes(goingSearchText.toLowerCase()))
+                .map((area) => ({ type: 'area' as const, id: area.id, name: area.name })),
+            ].map((loc) => (
               <TouchableOpacity
-                key={area.id}
+                key={loc.id}
                 style={[
                   styles.locationOption,
-                  goingLocation?.id === area.id && styles.locationOptionActiveCrag,
+                  goingLocation?.id === loc.id && (loc.type === 'gym' ? styles.locationOptionActiveGym : styles.locationOptionActiveCrag),
                 ]}
-                onPress={() =>
-                  setGoingLocation({ type: 'area', id: area.id, name: area.name })
-                }
+                onPress={() => setGoingLocation(loc)}
               >
                 <Ionicons
-                  name="location-outline"
+                  name={loc.type === 'gym' ? 'barbell-outline' : 'location-outline'}
                   size={18}
-                  color={
-                    goingLocation?.id === area.id ? colors.background : colors.secondary
-                  }
+                  color={goingLocation?.id === loc.id ? colors.background : (loc.type === 'gym' ? colors.primary : colors.secondary)}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text
-                    style={[
-                      styles.locationOptionText,
-                      goingLocation?.id === area.id && styles.locationOptionTextActive,
-                    ]}
-                  >
-                    {area.name}
+                  <Text style={[styles.locationOptionText, goingLocation?.id === loc.id && styles.locationOptionTextActive]}>
+                    {loc.name}
                   </Text>
-                  <Text
-                    style={[
-                      styles.locationOptionSub,
-                      goingLocation?.id === area.id && styles.locationOptionSubActive,
-                    ]}
-                  >
-                    Crag
+                  <Text style={[styles.locationOptionSub, goingLocation?.id === loc.id && styles.locationOptionSubActive]}>
+                    {loc.type === 'gym' ? 'Gym' : 'Crag'}
                   </Text>
                 </View>
-                {goingLocation?.id === area.id && (
+                {goingLocation?.id === loc.id && (
                   <Ionicons name="checkmark-circle" size={20} color={colors.background} />
                 )}
               </TouchableOpacity>
             ))}
 
             {goingLocation && (
-              <View style={styles.availabilitySection}>
-                <Text style={styles.availabilityLabel}>Availability</Text>
-                <View style={styles.availabilityRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.availabilityOption,
-                      goingOpenToJoin && styles.availabilityOptionActiveOpen,
-                    ]}
-                    onPress={() => setGoingOpenToJoin(true)}
-                  >
-                    <Ionicons
-                      name="people-outline"
-                      size={15}
-                      color={goingOpenToJoin ? colors.background : colors.primary}
-                    />
-                    <Text
-                      style={[
-                        styles.availabilityOptionText,
-                        goingOpenToJoin && styles.availabilityOptionTextActive,
-                      ]}
+              <>
+                {/* Arrival type */}
+                <View style={styles.availabilitySection}>
+                  <Text style={styles.availabilityLabel}>Arriving</Text>
+                  <View style={styles.availabilityRow}>
+                    <TouchableOpacity
+                      style={[styles.availabilityOption, goingArrivalType === 'now' && styles.availabilityOptionActiveOpen]}
+                      onPress={() => setGoingArrivalType('now')}
                     >
-                      Open to join
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.availabilityOption,
-                      !goingOpenToJoin && styles.availabilityOptionActiveSolo,
-                    ]}
-                    onPress={() => setGoingOpenToJoin(false)}
-                  >
-                    <Ionicons
-                      name="person-outline"
-                      size={15}
-                      color={!goingOpenToJoin ? colors.background : colors.secondary}
-                    />
-                    <Text
-                      style={[
-                        styles.availabilityOptionText,
-                        !goingOpenToJoin && styles.availabilityOptionTextActive,
-                      ]}
+                      <Ionicons name="flash-outline" size={15} color={goingArrivalType === 'now' ? colors.background : colors.primary} />
+                      <Text style={[styles.availabilityOptionText, goingArrivalType === 'now' && styles.availabilityOptionTextActive]}>Now</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.availabilityOption, goingArrivalType === 'soon' && styles.availabilityOptionActiveOpen]}
+                      onPress={() => setGoingArrivalType('soon')}
                     >
-                      Solo session
-                    </Text>
-                  </TouchableOpacity>
+                      <Ionicons name="time-outline" size={15} color={goingArrivalType === 'soon' ? colors.background : colors.primary} />
+                      <Text style={[styles.availabilityOptionText, goingArrivalType === 'soon' && styles.availabilityOptionTextActive]}>Soon</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
+
+                {/* Route note (areas only) */}
+                {goingLocation.type === 'area' && (
+                  <View style={styles.availabilitySection}>
+                    <Text style={styles.availabilityLabel}>Route note (optional)</Text>
+                    <TextInput
+                      style={styles.goingRouteNoteInput}
+                      value={goingRouteNote}
+                      onChangeText={setGoingRouteNote}
+                      placeholder="e.g. projecting Solar Slab"
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                    />
+                  </View>
+                )}
+
+                {/* Availability */}
+                <View style={styles.availabilitySection}>
+                  <Text style={styles.availabilityLabel}>Availability</Text>
+                  <View style={styles.availabilityRow}>
+                    <TouchableOpacity
+                      style={[styles.availabilityOption, goingOpenToJoin && styles.availabilityOptionActiveOpen]}
+                      onPress={() => setGoingOpenToJoin(true)}
+                    >
+                      <Ionicons name="people-outline" size={15} color={goingOpenToJoin ? colors.background : colors.primary} />
+                      <Text style={[styles.availabilityOptionText, goingOpenToJoin && styles.availabilityOptionTextActive]}>Open to join</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.availabilityOption, !goingOpenToJoin && styles.availabilityOptionActiveSolo]}
+                      onPress={() => setGoingOpenToJoin(false)}
+                    >
+                      <Ionicons name="person-outline" size={15} color={!goingOpenToJoin ? colors.background : colors.secondary} />
+                      <Text style={[styles.availabilityOptionText, !goingOpenToJoin && styles.availabilityOptionTextActive]}>Solo session</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
             )}
 
             <TouchableOpacity
@@ -925,7 +983,7 @@ const HomeScreen: React.FC = () => {
                 <ActivityIndicator size="small" color={colors.background} />
               ) : (
                 <Text style={styles.goBtnText}>
-                  {isOffline ? 'Queue — will sync when online' : 'Let friends know'}
+                  {isOffline ? 'Queue — will sync when online' : (goingOpenToJoin ? "Let friends know" : "Go solo")}
                 </Text>
               )}
             </TouchableOpacity>
@@ -1593,6 +1651,55 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontSize: 16,
     fontWeight: '500',
+  },
+  // Going modal search
+  goingSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  goingSearchInput: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 15,
+  },
+  goingRouteNoteInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 10,
+    color: colors.text,
+    fontSize: 14,
+    minHeight: 52,
+    textAlignVertical: 'top',
+    backgroundColor: colors.surfaceElevated,
+  },
+  // Place card badge row
+  placeCardBadgesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  unreadBadgeText: {
+    color: colors.background,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });
 
