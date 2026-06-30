@@ -11,12 +11,14 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { chatApi, areaFeedApi } from '../services/api';
+import { chatApi, areaFeedApi, groupsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useNetwork } from '../context/NetworkContext';
 import { ChatMessage } from '../types';
@@ -77,6 +79,9 @@ const GroupChatScreen: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [members, setMembers] = useState<Array<{ userId: string; name: string; role: string }>>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
 
   // Load chat and messages
   useEffect(() => {
@@ -235,7 +240,7 @@ const GroupChatScreen: React.FC = () => {
 
       // Launch image picker
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsEditing: true,
         quality: 0.8,
       });
@@ -285,7 +290,7 @@ const GroupChatScreen: React.FC = () => {
 
       // Launch video picker
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsEditing: true,
         quality: 0.8,
       });
@@ -320,6 +325,50 @@ const GroupChatScreen: React.FC = () => {
       console.error('Error picking video:', error);
       Alert.alert('Error', 'Failed to pick video. Please try again.');
     }
+  };
+
+  const loadMembers = async () => {
+    setLoadingMembers(true);
+    try {
+      const data = await groupsApi.getGroupMembers(groupId);
+      setMembers(
+        (data || []).map((m: any) => ({
+          userId: m.user_id ?? m.userId ?? '',
+          name: m.users?.name ?? m.name ?? 'Member',
+          role: m.role ?? 'member',
+        }))
+      );
+    } catch {
+      Alert.alert('Error', 'Failed to load members');
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const handleOpenMembers = () => {
+    setShowMembersModal(true);
+    loadMembers();
+  };
+
+  const handleRemoveMember = (userId: string, name: string) => {
+    Alert.alert('Remove Member', `Remove ${name} from this group?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await (supabase as any)
+              .from('group_members')
+              .delete()
+              .match({ group_id: groupId, user_id: userId });
+            setMembers((prev) => prev.filter((m) => m.userId !== userId));
+          } catch {
+            Alert.alert('Error', 'Failed to remove member');
+          }
+        },
+      },
+    ]);
   };
 
   const formatTime = (dateString: string) => {
@@ -450,6 +499,13 @@ const GroupChatScreen: React.FC = () => {
         </View>
       )}
 
+      {/* Members bar */}
+      <TouchableOpacity style={styles.membersBar} onPress={handleOpenMembers}>
+        <Ionicons name="people-outline" size={16} color={colors.textMuted} />
+        <Text style={styles.membersBarText}>Members</Text>
+        <Ionicons name="chevron-forward" size={14} color={colors.textFaded} />
+      </TouchableOpacity>
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -492,6 +548,43 @@ const GroupChatScreen: React.FC = () => {
           )}
         </TouchableOpacity>
       </View>
+      {/* Members modal */}
+      <Modal
+        visible={showMembersModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMembersModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.membersOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMembersModal(false)}
+        >
+          <View style={styles.membersSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.membersHandle} />
+            <Text style={styles.membersTitle}>Members</Text>
+            {loadingMembers ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 24 }} />
+            ) : (
+              <ScrollView>
+                {members.map((m) => (
+                  <View key={m.userId} style={styles.memberRow}>
+                    <View style={styles.memberAvatar}>
+                      <Text style={styles.memberAvatarText}>{m.name.charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <Text style={styles.memberName}>{m.name}</Text>
+                    {m.role !== 'admin' && m.userId !== user?.id && (
+                      <TouchableOpacity onPress={() => handleRemoveMember(m.userId, m.name)}>
+                        <Ionicons name="remove-circle-outline" size={22} color={colors.error ?? '#FF3B30'} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -668,6 +761,61 @@ const styles = StyleSheet.create({
   },
   messageBubblePending: { opacity: 0.65 },
   messageTimePending: { fontSize: 11, color: colors.textFaded, marginTop: 4, fontStyle: 'italic' },
+  membersBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  membersBarText: { fontSize: 12, color: colors.textMuted, flex: 1 },
+  membersOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  membersSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '70%',
+  },
+  membersHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  membersTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  memberAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberAvatarText: { color: colors.background, fontWeight: '600', fontSize: 14 },
+  memberName: { flex: 1, fontSize: 15, color: colors.text },
   offlineNotice: {
     flexDirection: 'row',
     alignItems: 'center',
